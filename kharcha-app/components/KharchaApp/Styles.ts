@@ -342,10 +342,6 @@ export const S: { [key: string]: CSSProperties } = {
     justifyContent: "center",
     outline: "none",
     transition: "background 0.2s, transform 0.1s",
-    ":active": {
-      background: TOKEN.borderSub,
-      transform: "scale(0.95)",
-    },
   },
   shakeAnim: {
     animation: "shake 0.4s ease-in-out",

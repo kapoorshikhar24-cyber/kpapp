@@ -11,6 +11,11 @@
   --foreground: #171717;
 }
 
+.key-btn:active {
+  background: #1A1A24 !important;
+  transform: scale(0.95);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

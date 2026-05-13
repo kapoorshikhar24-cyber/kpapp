@@ -202,11 +202,11 @@ export default function KharchaApp() {
 
         <div style={S.keypadGrid as any}>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
-                <button key={n} onClick={() => handlePinInput(n.toString())} style={S.keyBtn as any}>{n}</button>
+                <button key={n} className="key-btn" onClick={() => handlePinInput(n.toString())} style={S.keyBtn as any}>{n}</button>
             ))}
-            <button onClick={clearPin} style={{ ...S.keyBtn, color: TOKEN.danger } as any}>✕</button>
-            <button onClick={() => handlePinInput("0")} style={S.keyBtn as any}>0</button>
-            <button onClick={handleBiometric} style={{ ...S.keyBtn, display: "flex", alignItems: "center", justifyContent: "center" } as any}>
+            <button onClick={clearPin} className="key-btn" style={{ ...S.keyBtn, color: TOKEN.danger } as any}>✕</button>
+            <button onClick={() => handlePinInput("0")} className="key-btn" style={S.keyBtn as any}>0</button>
+            <button onClick={handleBiometric} className="key-btn" style={{ ...S.keyBtn, display: "flex", alignItems: "center", justifyContent: "center" } as any}>
                 <FingerprintIcon size={24} />
             </button>
         </div>
