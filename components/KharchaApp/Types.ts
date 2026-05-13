@@ -1,4 +1,4 @@
-export type ScreenName = "lock" | "cat" | "amt" | "dash" | "hist" | "set" | "manage_cats" | "change_pin";
+export type ScreenName = "lock" | "cat" | "amt" | "dash" | "hist" | "set" | "manage_cats" | "change_pin" | "registry";
 export type PeriodName = "today" | "week" | "month";
 
 export interface Category {

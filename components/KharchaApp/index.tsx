@@ -16,8 +16,51 @@ import {
   loadStorage, saveStorage,
   filterByPeriod, sumExpenses, categoryTotal,
   weeklyTotals, groupByDate, generateId,
+  triggerHaptic, HapticType,
 } from "./Utils";
 import { S, TOKEN } from "./Styles";
+
+// ─── WebAuthn Helpers ────────────────────────────────────────────────────────
+const bufferToBase64url = (buffer: ArrayBuffer | Uint8Array) => {
+  const bytes = new Uint8Array(buffer);
+  let str = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    str += String.fromCharCode(bytes[i]);
+  }
+  const base64String = btoa(str);
+  return base64String.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+};
+
+const base64urlToBuffer = (base64url: string) => {
+  const padding = '='.repeat((4 - base64url.length % 4) % 4);
+  const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+};
+
+const AUTH_CONFIG = {
+  publicKey: {
+    challenge: new Uint8Array(32),
+    rp: { name: "Kharcha App" },
+    user: {
+      id: new Uint8Array(16),
+      name: "user@kharcha.app",
+      displayName: "Kharcha User"
+    },
+    pubKeyCredParams: [{ alg: -7, type: "public-key" as const }],
+    authenticatorSelection: {
+      userVerification: "required" as const,
+      authenticatorAttachment: "platform" as const,
+      residentKey: "preferred" as const,
+      requireResidentKey: false,
+    },
+    timeout: 60000
+  }
+};
 import {
   StatusBar, HomeBar, Toggle, FingerprintIcon,
   SectionLabel, TogRow,
@@ -30,7 +73,7 @@ import {
 export default function KharchaApp() {
 
   // ── Core state ──────────────────────────────────────────────────────────────
-  const [screen, setScreen]     = useState<ScreenName>("lock");
+  const [screen, setScreen] = useState<ScreenName>("lock");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -38,7 +81,9 @@ export default function KharchaApp() {
   // ── Amount screen ────────────────────────────────────────────────────────────
   const [selCat, setSelCat] = useState<Category>(CATEGORIES[0]);
   const [amtVal, setAmtVal] = useState<number>(150);
-  const [note,   setNote]   = useState<string>("");
+  const [amtInput, setAmtInput] = useState<string>(""); // For manual typing
+  const [showKeypad, setShowKeypad] = useState<boolean>(false);
+  const [note, setNote] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
   // ── Categories ──────────────────────────────────────────────────────────────
@@ -48,7 +93,7 @@ export default function KharchaApp() {
   const [period, setPeriod] = useState<PeriodName>("today");
 
   // ── History ──────────────────────────────────────────────────────────────────
-  const [histCat,    setHistCat]    = useState<string>("all");
+  const [histCat, setHistCat] = useState<string>("all");
   const [histSearch, setHistSearch] = useState<string>("");
 
   // ── Voice ────────────────────────────────────────────────────────────────────
@@ -73,60 +118,99 @@ export default function KharchaApp() {
 
   // ── Navigation ───────────────────────────────────────────────────────────────
   const go = useCallback((s: ScreenName) => {
+    if (settings.haptic) triggerHaptic("light");
     setScreen(s);
     setVoiceOpen(false);
     setPinInput("");
-  }, []);
+  }, [settings.haptic]);
 
   // ── Auth Handlers ───────────────────────────────────────────────────────────
   const handleBiometric = useCallback(async () => {
     if (!settings.biometric || bioStatus) return;
 
-    setBioStatus("scanning");
+    // Check if WebAuthn and Platform Authenticator are supported
+    if (!window.PublicKeyCredential) {
+      alert("Biometric authentication not supported on this browser.");
+      return;
+    }
     
-    // Simulate biometric check duration
-    await new Promise(r => setTimeout(r, 1500));
+    const isAvailable = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (!isAvailable) {
+      alert("No biometric hardware (Fingerprint/FaceID) detected on this device.");
+      return;
+    }
 
-    // For a real PWA, you'd use navigator.credentials here
-    // For now, we simulate success
-    const success = true; 
+    setBioStatus("scanning");
 
-    if (success) {
-      setBioStatus("success");
-      setTimeout(() => {
+    try {
+      const storageKey = `bio_cred_${settings.userEmail || "default"}`;
+      const savedId = localStorage.getItem(storageKey);
+      
+      // If no valid credential saved, we can't do non-discoverable auth
+      if (!savedId || savedId === "enrolled") {
+        alert("Please register your fingerprint in Settings first.");
         setBioStatus(null);
-        go("cat");
-      }, 800);
-    } else {
+        return;
+      }
+
+      const options: any = {
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          userVerification: "required",
+          allowCredentials: [{
+            type: "public-key",
+            id: base64urlToBuffer(savedId),
+            transports: ["internal"] // Force built-in sensor, skips "USB key" prompt on Android
+          }]
+        }
+      };
+
+      const assertion = await navigator.credentials.get(options);
+
+      if (assertion) {
+        if (settings.haptic) triggerHaptic("success");
+        setBioStatus("success");
+        setTimeout(() => {
+          setBioStatus(null);
+          go("dash"); // Direct to dashboard on success
+        }, 800);
+      }
+    } catch (err: any) {
+      console.error("Biometric failed", err);
+      if (settings.haptic) triggerHaptic("error");
+      
+      // Handle "No passkeys available" specifically
+      if (err.name === "NotAllowedError") {
+        alert("Authentication cancelled or no registered fingerprint found. Please register in Settings first.");
+      } else {
+        alert("Biometric error: " + err.message);
+      }
+      
       setBioStatus("fail");
       setTimeout(() => setBioStatus(null), 2000);
     }
-  }, [settings.biometric, bioStatus, go]);
+  }, [settings.biometric, bioStatus, go, settings.haptic, settings.userEmail]);
 
   const handlePinInput = useCallback((num: string) => {
     if (loginSuccess) return;
-    
+
     const next = pinInput + num;
     if (next.length <= 4) {
       setPinInput(next);
-      
-      // Haptic feedback simulation
-      if (settings.haptic && window.navigator.vibrate) {
-        window.navigator.vibrate(10);
-      }
+      if (settings.haptic) triggerHaptic("light");
 
-      if (next.length === 4) {
+      // Only trigger login logic on the lock screen
+      if (screen === "lock" && next.length === 4) {
         if (next === settings.pinCode) {
+          if (settings.haptic) triggerHaptic("success");
           setLoginSuccess(true);
           setTimeout(() => {
             setLoginSuccess(false);
-            go("cat");
+            go("dash");
           }, 400);
         } else {
+          if (settings.haptic) triggerHaptic("error");
           setShake(true);
-          if (settings.haptic && window.navigator.vibrate) {
-            window.navigator.vibrate([50, 50, 50]);
-          }
           setTimeout(() => {
             setShake(false);
             setPinInput("");
@@ -134,7 +218,7 @@ export default function KharchaApp() {
         }
       }
     }
-  }, [pinInput, go, settings.pinCode, settings.haptic, loginSuccess]);
+  }, [pinInput, screen, go, settings.pinCode, settings.haptic, loginSuccess]);
 
   // ── Auto-trigger biometric on lock screen ───────────────────────────────────
   useEffect(() => {
@@ -160,22 +244,24 @@ export default function KharchaApp() {
 
   // ── Expense actions ──────────────────────────────────────────────────────────
   const updateAmt = useCallback((delta: number) => {
+    if (settings.haptic) triggerHaptic(Math.abs(delta) > 10 ? "medium" : "light");
     setAmtVal((prev) => Math.max(1, prev + delta));
-  }, []);
+  }, [settings.haptic]);
 
   const addExpense = useCallback(() => {
     if (isSaving) return;
-    
+
     setIsSaving(true);
+    if (settings.haptic) triggerHaptic("success");
     const e: Expense = {
-      id:        generateId(),
-      category:  selCat.id,
-      amount:    amtVal,
-      note:      note.trim(),
+      id: generateId(),
+      category: selCat.id,
+      amount: amtVal,
+      note: note.trim(),
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [e, ...prev]);
-    
+
     setTimeout(() => {
       setIsSaving(false);
       setNote("");
@@ -188,16 +274,59 @@ export default function KharchaApp() {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
-  const updateSetting = useCallback(<K extends keyof Settings>(key: K, val: Settings[K]) => {
+  const registerBiometrics = useCallback(async () => {
+    try {
+      if (!window.PublicKeyCredential) throw new Error("Not supported");
+
+      setBioStatus("scanning");
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          ...AUTH_CONFIG.publicKey,
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          user: {
+            ...AUTH_CONFIG.publicKey.user,
+            id: crypto.getRandomValues(new Uint8Array(16)) // Ensure unique user ID per device
+          }
+        }
+      });
+
+      if (!credential) {
+        setBioStatus(null);
+        return false;
+      }
+
+      const rawId = (credential as any).rawId;
+      const storageKey = `bio_cred_${settings.userEmail || "default"}`;
+      localStorage.setItem(storageKey, bufferToBase64url(rawId));
+
+      if (settings.haptic) triggerHaptic("success");
+      setBioStatus("success");
+      setTimeout(() => setBioStatus(null), 1000);
+      return true;
+    } catch (err) {
+      console.error(err);
+      setBioStatus("fail");
+      setTimeout(() => setBioStatus(null), 2000);
+      alert("Failed to register biometrics. Ensure your device supports it.");
+      return false;
+    }
+  }, [settings.userEmail, settings.haptic]);
+
+  const updateSetting = useCallback(async <K extends keyof Settings>(key: K, val: Settings[K]) => {
+    if (key === "biometric" && val === true) {
+      const success = await registerBiometrics();
+      if (!success) return;
+    }
+    if (settings.haptic) triggerHaptic("medium");
     setSettings((s) => ({ ...s, [key]: val }));
-  }, []);
+  }, [settings.haptic, registerBiometrics]);
 
   // ── Derived values ───────────────────────────────────────────────────────────
-  const todayExpenses  = filterByPeriod(expenses, "today");
-  const todayTotal     = sumExpenses(todayExpenses);
+  const todayExpenses = filterByPeriod(expenses, "today");
+  const todayTotal = sumExpenses(todayExpenses);
   const periodExpenses = filterByPeriod(expenses, period);
-  const periodTotal    = sumExpenses(periodExpenses);
-  const barData        = weeklyTotals(expenses);
+  const periodTotal = sumExpenses(periodExpenses);
+  const barData = weeklyTotals(expenses);
 
   const topCats = categories
     .map((c) => ({ ...c, total: categoryTotal(expenses, c.id) }))
@@ -207,14 +336,14 @@ export default function KharchaApp() {
   const maxCatTotal = Math.max(...topCats.map((c) => c.total), 1);
 
   const filteredExpenses = expenses.filter((e) => {
-    const catMatch  = histCat === "all" || e.category === histCat;
+    const catMatch = histCat === "all" || e.category === histCat;
     const noteMatch = !histSearch ||
       (e.note || "").toLowerCase().includes(histSearch.toLowerCase()) ||
       e.category.includes(histSearch.toLowerCase());
     return catMatch && noteMatch;
   });
   const groupedHistory = groupByDate(filteredExpenses);
-  const historyDates   = Object.keys(groupedHistory).sort().reverse();
+  const historyDates = Object.keys(groupedHistory).sort().reverse();
 
   // ── Voice simulation ─────────────────────────────────────────────────────────
   function startVoice() {
@@ -225,10 +354,10 @@ export default function KharchaApp() {
 
   function confirmVoice() {
     const e: Expense = {
-      id:        generateId(),
-      category:  "food",
-      amount:    200,
-      note:      "Sharma dhaba",
+      id: generateId(),
+      category: "food",
+      amount: 200,
+      note: "Sharma dhaba",
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [e, ...prev]);
@@ -251,9 +380,15 @@ export default function KharchaApp() {
     };
 
     return (
-      <div style={{ ...S.screen, gap: 30, position: "relative", ...(shake ? { animation: "shake 0.4s ease-in-out" } : {}) } as any}>
+      <div style={{
+        ...S.screen,
+        gap: 30,
+        position: "relative",
+        ...(shake ? { animation: "shake 0.4s ease-in-out" } : {}),
+        ...(loginSuccess ? S.pulseSuccess : {}),
+      } as any}>
         <AuthStyles />
-        
+
         {bioStatus && <BiometricOverlay status={bioStatus} onCancel={() => setBioStatus(null)} />}
 
         {/* Title Section */}
@@ -266,61 +401,89 @@ export default function KharchaApp() {
           </div>
         </div>
 
-        {/* PIN dots */}
-        <div style={{ display: "flex", gap: 18, justifyContent: "center" }}>
-          {[0, 1, 2, 3].map((i) => {
-            const filled = i < pinInput.length;
-            const isLast = i === pinInput.length - 1;
-            return (
-              <div key={i} style={{
-                width: 16, height: 16, borderRadius: "50%",
-                background: filled ? (loginSuccess ? TOKEN.success : TOKEN.amber) : "transparent",
-                border: `2px solid ${filled ? (loginSuccess ? TOKEN.success : TOKEN.amber) : TOKEN.dim}`,
-                transition: "all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
-                transform: isLast ? "scale(1.2)" : "scale(1)",
-                boxShadow: filled ? `0 0 10px ${loginSuccess ? TOKEN.success : TOKEN.amber}40` : "none",
-              }} />
-            );
-          })}
-        </div>
+        {/* PIN Entry Area (Only if PIN enabled or Biometrics failed/skipped) */}
+        {settings.pin ? (
+          <>
+            {/* PIN dots */}
+            <div style={{ display: "flex", gap: 18, justifyContent: "center" }}>
+              {[0, 1, 2, 3].map((i) => {
+                const filled = i < pinInput.length;
+                const isLast = i === pinInput.length - 1;
+                return (
+                  <div key={i} style={{
+                    width: 16, height: 16, borderRadius: "50%",
+                    background: filled ? (loginSuccess ? TOKEN.success : TOKEN.amber) : "transparent",
+                    border: `2px solid ${filled ? (loginSuccess ? TOKEN.success : TOKEN.amber) : TOKEN.dim}`,
+                    transition: "all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                    transform: isLast ? "scale(1.2)" : "scale(1)",
+                    boxShadow: filled ? `0 0 10px ${loginSuccess ? TOKEN.success : TOKEN.amber}40` : "none",
+                  }} />
+                );
+              })}
+            </div>
 
-        {/* Number keypad */}
-        <div style={{
-          display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 16, width: "100%", maxWidth: 260, margin: "0 auto",
-        }}>
-          {[1,2,3,4,5,6,7,8,9].map((n) => (
-            <button key={n} onClick={() => handlePinInput(n.toString())} style={{
-              ...S.keyBtn,
-              background: "#16161F",
-              border: `1px solid ${TOKEN.border}`,
-              fontSize: 24,
-            } as any}>
-              {n}
+            {/* Number keypad */}
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 16, width: "100%", maxWidth: 260, margin: "0 auto",
+            }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                <button key={n} onClick={() => handlePinInput(n.toString())} style={{
+                  ...S.keyBtn,
+                  background: "#16161F",
+                  border: `1px solid ${TOKEN.border}`,
+                  fontSize: 24,
+                  transition: "transform 0.1s",
+                } as any} onPointerDown={(e) => e.currentTarget.style.transform = "scale(0.92)"} onPointerUp={(e) => e.currentTarget.style.transform = "scale(1)"}>
+                  {n}
+                </button>
+              ))}
+              {/* Biometric Trigger */}
+              <button onClick={handleBiometric} aria-label="Biometric unlock" style={{
+                ...S.keyBtn,
+                background: settings.biometric ? "#171720" : "#0D0D12",
+                border: settings.biometric ? `1.5px solid ${TOKEN.amber}` : `1px solid ${TOKEN.border}`,
+                color: settings.biometric ? TOKEN.amber : TOKEN.muted,
+                transition: "transform 0.1s",
+                opacity: settings.biometric ? 1 : 0.4,
+              } as any} onPointerDown={(e) => e.currentTarget.style.transform = "scale(0.92)"} onPointerUp={(e) => e.currentTarget.style.transform = "scale(1)"}>
+                <FingerprintIcon size={28} />
+              </button>
+              {/* 0 */}
+              <button onClick={() => handlePinInput("0")} style={{ ...S.keyBtn, transition: "transform 0.1s" } as any}
+                onPointerDown={(e) => e.currentTarget.style.transform = "scale(0.92)"}
+                onPointerUp={(e) => e.currentTarget.style.transform = "scale(1)"}>
+                0
+              </button>
+              {/* Backspace */}
+              <button onClick={() => setPinInput(p => p.slice(0, -1))} aria-label="Delete last digit" style={{
+                ...S.keyBtn,
+                color: TOKEN.danger,
+                fontSize: 20,
+                transition: "transform 0.1s",
+              } as any} onPointerDown={(e) => e.currentTarget.style.transform = "scale(0.92)"} onPointerUp={(e) => e.currentTarget.style.transform = "scale(1)"}>
+                ⌫
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+            <div style={{ ...S.biometricRing, width: 100, height: 100, borderStyle: "dashed", opacity: 0.6 }}>
+              <FingerprintIcon size={40} color={TOKEN.dim} />
+            </div>
+            <button onClick={handleBiometric} style={S.primaryBtn}>
+              Authenticate with Biometrics
             </button>
-          ))}
-          {/* Biometric */}
-          <button onClick={handleBiometric} aria-label="Biometric unlock" style={{
-            ...S.keyBtn,
-            background: "#171720",
-            border: `1.5px solid ${TOKEN.amber}`,
-            color: TOKEN.amber,
-          } as any}>
-            <FingerprintIcon size={28} />
-          </button>
-          {/* 0 */}
-          <button onClick={() => handlePinInput("0")} style={S.keyBtn as any}>
-            0
-          </button>
-          {/* Backspace */}
-          <button onClick={() => setPinInput(p => p.slice(0, -1))} aria-label="Delete last digit" style={{
-            ...S.keyBtn,
-            color: TOKEN.danger,
-            fontSize: 20,
-          } as any}>
-            ⌫
-          </button>
-        </div>
+            <div style={{ color: TOKEN.muted, fontSize: 12, textAlign: "center", maxWidth: 200 }}>
+              PIN login is disabled in settings.
+            </div>
+            {!localStorage.getItem(`bio_cred_${settings.userEmail || "default"}`) && (
+              <button onClick={registerBiometrics} style={{ ...S.forgotBtn, color: TOKEN.amber }}>
+                Setup Fingerprint Login
+              </button>
+            )}
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <button onClick={handleForgot} style={S.forgotBtn}>
@@ -390,14 +553,18 @@ export default function KharchaApp() {
         )}
 
         <div style={{ color: "#666678", fontSize: 12, marginTop: 4 }}>Select category</div>
-        
+
         <div style={S.catGrid}>
           {categories.map((cat) => {
             const total = categoryTotal(expenses, cat.id);
             return (
               <button
                 key={cat.id}
-                onClick={() => { setSelCat(cat); go("amt"); }}
+                onClick={() => {
+                  if (settings.haptic) triggerHaptic("light");
+                  setSelCat(cat);
+                  go("amt");
+                }}
                 style={{
                   ...S.catBtn,
                   borderColor: selCat.id === cat.id ? cat.color : "#2E2E3E",
@@ -416,12 +583,34 @@ export default function KharchaApp() {
     );
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
+  // ─── Amount Entry Screen ───────────────────────────────────────────────────
   function renderAmt() {
+    const handleNumInput = (num: string) => {
+      if (settings.haptic) triggerHaptic("light");
+      setAmtInput(prev => {
+        const next = prev + num;
+        if (next.length > 7) return prev; // Limit to 7 digits
+        setAmtVal(parseInt(next) || 0);
+        return next;
+      });
+    };
+
+    const handleBackspace = () => {
+      if (settings.haptic) triggerHaptic("light");
+      setAmtInput(prev => {
+        const next = prev.slice(0, -1);
+        setAmtVal(parseInt(next) || 0);
+        return next;
+      });
+    };
+
     return (
       <div style={S.screenPad}>
+        {/* Header */}
         <div style={S.row}>
-          <button onClick={() => go("cat")} style={S.iconBtn} aria-label="Back"><ArrowLeftIcon color={TOKEN.dim} /></button>
+          <button onClick={() => { go("cat"); setAmtInput(""); setShowKeypad(false); }} style={S.iconBtn} aria-label="Back">
+            <ArrowLeftIcon color={TOKEN.dim} />
+          </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ ...S.picon, background: selCat.bg, width: 28, height: 28 }}>
               <CatIcon id={selCat.icon} size={14} color={selCat.color} />
@@ -431,42 +620,79 @@ export default function KharchaApp() {
           <div style={{ width: 34 }} />
         </div>
 
+        {/* Note Input */}
         <div style={S.card}>
           <div style={{ color: TOKEN.muted, fontSize: 11, marginBottom: 6 }}>Note</div>
           <input
-            autoFocus
+            autoFocus={!showKeypad}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Lunch, Petrol, Shopping…"
             style={S.noteInput}
+            onFocus={() => setShowKeypad(false)}
           />
         </div>
 
-        <div style={{ ...S.card, flex: 1, alignItems: "center", justifyContent: "center", gap: 14 }}>
-          <div style={{ color: TOKEN.muted, fontSize: 12 }}>Amount (₹)</div>
-          <button onClick={() => updateAmt(50)} style={S.adjBtn as any}>▲</button>
+        {/* Amount Display */}
+        <div style={{
+          ...S.card,
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          border: showKeypad ? `1px solid ${TOKEN.amber}` : S.card.border,
+          cursor: "pointer"
+        }} onClick={() => setShowKeypad(true)}>
+          <div style={{ color: TOKEN.muted, fontSize: 12 }}>{showKeypad ? "Typing amount..." : "Tap to edit amount"}</div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 52, fontWeight: 500, color: TOKEN.text, fontFamily: TOKEN.mono, letterSpacing: "-2px" }}>
+            <div style={{
+              fontSize: 52,
+              fontWeight: 600,
+              color: showKeypad ? TOKEN.amber : TOKEN.text,
+              fontFamily: TOKEN.mono,
+              letterSpacing: "-2px"
+            }}>
               ₹{amtVal.toLocaleString("en-IN")}
+              {showKeypad && <span style={{ animation: "pulse 1s infinite", borderLeft: `3px solid ${TOKEN.amber}`, marginLeft: 4 }}>&nbsp;</span>}
             </div>
-            <div style={{ color: TOKEN.muted, fontSize: 11, marginTop: 4 }}>±₹50 steps</div>
-          </div>
-          <button onClick={() => updateAmt(-50)} style={S.adjBtn as any}>▼</button>
-          
-          <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
-            <button onClick={() => updateAmt(-10)} style={S.fineBtn}>−10</button>
-            <button onClick={() => updateAmt(-1)}  style={S.fineBtn}>−1</button>
-            <button onClick={() => updateAmt(1)}   style={S.fineBtn}>+1</button>
-            <button onClick={() => updateAmt(10)}  style={S.fineBtn}>+10</button>
           </div>
         </div>
 
-        <button 
-          onClick={addExpense} 
+        {/* Dynamic Controls: Keypad vs Adjusters */}
+        {showKeypad ? (
+          <div style={{ ...S.keypadGrid, gap: 10, maxWidth: "100%" } as any}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+              <button key={n} onClick={() => handleNumInput(n.toString())} style={{ ...S.keyBtn, height: 50, borderRadius: 12 } as any}>{n}</button>
+            ))}
+            <button onClick={() => { if (settings.haptic) triggerHaptic("medium"); setShowKeypad(false); }} style={{ ...S.keyBtn, height: 50, borderRadius: 12, color: TOKEN.amber } as any}>OK</button>
+            <button onClick={() => handleNumInput("0")} style={{ ...S.keyBtn, height: 50, borderRadius: 12 } as any}>0</button>
+            <button onClick={handleBackspace} style={{ ...S.keyBtn, height: 50, borderRadius: 12, color: TOKEN.danger } as any}>⌫</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "center", gap: 20, alignItems: "center" }}>
+              <button onClick={() => updateAmt(-50)} style={S.adjBtn as any}>▼</button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => updateAmt(-10)} style={S.fineBtn}>−10</button>
+                <button onClick={() => updateAmt(10)} style={S.fineBtn}>+10</button>
+              </div>
+              <button onClick={() => updateAmt(50)} style={S.adjBtn as any}>▲</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              {[100, 200, 500, 1000].map(v => (
+                <button key={v} onClick={() => { if (settings.haptic) triggerHaptic("medium"); setAmtVal(v); setAmtInput(v.toString()); }} style={S.fineBtn}>₹{v}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => { setAmtInput(""); setShowKeypad(false); addExpense(); }}
           style={{
             ...S.primaryBtn,
             background: isSaving ? TOKEN.success : TOKEN.amber,
             color: isSaving ? "#E1F5EE" : TOKEN.amberText,
+            marginTop: 10
           }}
         >
           {isSaving ? "✓ Saved!" : "Save Expense"}
@@ -498,7 +724,7 @@ export default function KharchaApp() {
               style={{
                 flex: 1, padding: 7, borderRadius: 8, border: "none", cursor: "pointer",
                 background: period === p ? TOKEN.amber : "transparent",
-                color:      period === p ? TOKEN.amberText : TOKEN.muted,
+                color: period === p ? TOKEN.amberText : TOKEN.muted,
                 fontWeight: period === p ? 500 : 400,
                 fontSize: 12,
               }}
@@ -509,6 +735,37 @@ export default function KharchaApp() {
         </div>
 
         <OverviewCard total={periodTotal} sub={subText} />
+
+        {/* Security Setup Prompt */}
+        {settings.biometric && !localStorage.getItem(`bio_cred_${settings.userEmail || "default"}`) && (
+          <div style={{
+            padding: 16,
+            background: "#251E13",
+            borderRadius: 16,
+            border: `1px solid ${TOKEN.amber}40`,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginTop: 10,
+            animation: "pulseSuccess 2s infinite"
+          }}>
+            <div style={{ fontSize: 24 }}>☝️</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: TOKEN.text, fontSize: 13, fontWeight: 600 }}>Enable Fingerprint</div>
+              <div style={{ color: TOKEN.muted, fontSize: 11 }}>Secure your app with one tap</div>
+            </div>
+            <button onClick={registerBiometrics} style={{
+              padding: "6px 12px",
+              background: TOKEN.amber,
+              color: TOKEN.amberText,
+              border: "none",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer"
+            }}>SET UP</button>
+          </div>
+        )}
 
         <div style={{ ...S.card, gap: 12 }}>
           <div style={{ color: "#666678", fontSize: 12 }}>By category</div>
@@ -564,7 +821,7 @@ export default function KharchaApp() {
         {/* Category filter chips */}
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
           {["all", ...categories.map((c) => c.id)].map((f) => {
-            const cat    = categories.find((c) => c.id === f);
+            const cat = categories.find((c) => c.id === f);
             const active = histCat === f;
             return (
               <button
@@ -573,9 +830,9 @@ export default function KharchaApp() {
                 style={{
                   whiteSpace: "nowrap", padding: "5px 12px", borderRadius: 20,
                   fontSize: 11, cursor: "pointer",
-                  border:      `0.5px solid ${active ? TOKEN.amber : "#2E2E3E"}`,
-                  background:  active ? "#251E13" : "transparent",
-                  color:       active ? TOKEN.amber : "#666",
+                  border: `0.5px solid ${active ? TOKEN.amber : "#2E2E3E"}`,
+                  background: active ? "#251E13" : "transparent",
+                  color: active ? TOKEN.amber : "#666",
                 }}
               >
                 {cat ? `${cat.icon} ${cat.label}` : "All"}
@@ -639,8 +896,45 @@ export default function KharchaApp() {
         </div>
 
         <SectionLabel>Security</SectionLabel>
-        <TogRow label="Biometric unlock" sub="Fingerprint / Face ID" val={settings.biometric} onChange={(v) => updateSetting("biometric", v)} />
-        <TogRow label="PIN fallback"     sub="4-digit backup PIN"    val={settings.pin}       onChange={(v) => updateSetting("pin", v)} />
+        <TogRow label="Biometric unlock" sub="FaceID / Fingerprint" val={settings.biometric} onChange={(v) => updateSetting("biometric", v)} />
+        
+        <div style={{ padding: "0 20px 10px" }}>
+          <button 
+            onClick={registerBiometrics} 
+            style={{ 
+              width: "100%",
+              padding: "14px",
+              background: "#16161F",
+              border: `1px solid ${settings.biometric ? TOKEN.amber : TOKEN.border}`,
+              borderRadius: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              cursor: "pointer",
+              opacity: settings.biometric ? 1 : 0.5
+            }}
+          >
+            <div style={{ 
+              width: 32, height: 32, borderRadius: 8, background: settings.biometric ? "#251E13" : "#1A1A24",
+              display: "flex", alignItems: "center", justifyContent: "center"
+            }}>
+              <FingerprintIcon size={20} color={settings.biometric ? TOKEN.amber : TOKEN.muted} />
+            </div>
+            <div style={{ flex: 1, textAlign: "left" }}>
+              <div style={{ color: TOKEN.text, fontSize: 13, fontWeight: 500 }}>Add / Update Fingerprint</div>
+              <div style={{ color: TOKEN.muted, fontSize: 11 }}>Link your phone's biometrics</div>
+            </div>
+            <span style={{ color: TOKEN.amber, fontWeight: 600 }}>+</span>
+          </button>
+        </div>
+
+        <TogRow label="PIN Login" sub="4-digit security code" val={settings.pin} onChange={(v) => {
+          if (!v && !settings.biometric) {
+            alert("You must have at least one security method enabled.");
+            return;
+          }
+          updateSetting("pin", v);
+        }} />
         <button onClick={() => go("change_pin")} style={S.menuItem}>
           <div style={{ flex: 1, textAlign: "left" }}>
             <div style={{ color: TOKEN.textSub, fontSize: 13 }}>Change PIN</div>
@@ -657,9 +951,9 @@ export default function KharchaApp() {
           </div>
           <span style={{ color: TOKEN.muted }}>›</span>
         </button>
-        <TogRow label="Voice logging"   sub="AI expense detection"    val={settings.voice}   onChange={(v) => updateSetting("voice", v)} />
-        <TogRow label="Haptic feedback" sub="Vibrate on amount change" val={settings.haptic}  onChange={(v) => updateSetting("haptic", v)} />
-        <TogRow label="Offline mode"    sub="Cache entries locally"    val={settings.offline} onChange={(v) => updateSetting("offline", v)} />
+        <TogRow label="Voice logging" sub="AI expense detection" val={settings.voice} onChange={(v) => updateSetting("voice", v)} />
+        <TogRow label="Haptic feedback" sub="Vibrate on amount change" val={settings.haptic} onChange={(v) => updateSetting("haptic", v)} />
+        <TogRow label="Offline mode" sub="Cache entries locally" val={settings.offline} onChange={(v) => updateSetting("offline", v)} />
 
         <SectionLabel>Budget</SectionLabel>
         <div style={{ padding: "0 20px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -724,9 +1018,51 @@ export default function KharchaApp() {
             <button onClick={() => {
               if (pinInput.length === 4) {
                 updateSetting("pinCode", pinInput);
-                go("set");
+                setPinInput("");
+                if (settings.biometric) {
+                  go("registry"); // Offer to register fingerprint after PIN setup
+                } else {
+                  go("set");
+                }
               }
             }} style={{ ...S.keyBtn, color: TOKEN.success, fontSize: 16 } as any}>SAVE</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderRegistry() {
+    return (
+      <div style={S.screenBase}>
+        <div style={{ ...S.row, padding: "20px 20px 12px" }}>
+          <button onClick={() => go("set")} style={S.iconBtn} aria-label="Back">←</button>
+          <div style={S.heading}>Security Registry</div>
+          <div style={{ width: 34 }} />
+        </div>
+        
+        <div style={{ padding: 24, textAlign: "center", display: "flex", flexDirection: "column", gap: 30, flex: 1, justifyContent: "center" }}>
+          <div style={{ ...S.biometricRing, width: 120, height: 120, margin: "0 auto", animation: "pulseSuccess 2s infinite" }}>
+            <FingerprintIcon size={50} color={TOKEN.amber} />
+          </div>
+          
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 600, color: TOKEN.text, marginBottom: 8 }}>Register Fingerprint</div>
+            <div style={{ color: TOKEN.muted, fontSize: 14, lineHeight: 1.5 }}>
+              Link your device's biometric data to Kharcha for faster, more secure access to your finances.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button onClick={async () => {
+              const success = await registerBiometrics();
+              if (success) go("set");
+            }} style={S.primaryBtn}>
+              Start Registration
+            </button>
+            <button onClick={() => go("set")} style={{ background: "none", border: "none", color: TOKEN.muted, fontSize: 13, cursor: "pointer" }}>
+              Skip for now
+            </button>
           </div>
         </div>
       </div>
@@ -756,20 +1092,20 @@ export default function KharchaApp() {
             </div>
           ))}
           <div style={{ marginTop: 20, padding: 14, background: "#16161F", borderRadius: 12, border: `1.5px dashed ${TOKEN.border}`, textAlign: "center", color: TOKEN.muted, fontSize: 13, cursor: "pointer" }}
-               onClick={() => {
-                 const name = window.prompt("Category Name?");
-                 const icon = window.prompt("Icon (Emoji)?") || "📦";
-                 if (name) {
-                   const newCat: Category = {
-                     id: name.toLowerCase().replace(/\s+/g, "_"),
-                     label: name,
-                     icon: icon,
-                     color: TOKEN.amber,
-                     bg: "#1A1A24"
-                   };
-                   setCategories(prev => [...prev, newCat]);
-                 }
-               }}>
+            onClick={() => {
+              const name = window.prompt("Category Name?");
+              const icon = window.prompt("Icon (Emoji)?") || "📦";
+              if (name) {
+                const newCat: Category = {
+                  id: name.toLowerCase().replace(/\s+/g, "_"),
+                  label: name,
+                  icon: icon,
+                  color: TOKEN.amber,
+                  bg: "#1A1A24"
+                };
+                setCategories(prev => [...prev, newCat]);
+              }
+            }}>
             + Add New Category
           </div>
         </div>
@@ -784,12 +1120,13 @@ export default function KharchaApp() {
         <StatusBar />
         <div style={S.body}>
           {screen === "lock" && renderLock()}
-          {screen === "cat"  && renderCat()}
-          {screen === "amt"  && renderAmt()}
+          {screen === "cat" && renderCat()}
+          {screen === "amt" && renderAmt()}
           {screen === "dash" && renderDash()}
           {screen === "hist" && renderHist()}
-          {screen === "set"  && renderSet()}
+          {screen === "set" && renderSet()}
           {screen === "change_pin" && renderChangePin()}
+          {screen === "registry" && renderRegistry()}
           {screen === "manage_cats" && renderManageCats()}
         </div>
         <HomeBar />

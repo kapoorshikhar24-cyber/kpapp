@@ -103,3 +103,25 @@ export function groupByDate(expenses: Expense[]) {
   });
   return groups;
 }
+
+export type HapticType = "light" | "medium" | "heavy" | "success" | "warning" | "error";
+
+export function triggerHaptic(type: HapticType = "light") {
+  if (typeof window === "undefined" || !window.navigator.vibrate) return;
+
+  const patterns: Record<HapticType, number | number[]> = {
+    light: 10,
+    medium: 20,
+    heavy: 40,
+    success: [10, 30, 10],
+    warning: [40, 60, 40],
+    error: [60, 40, 60, 40, 100],
+  };
+
+  try {
+    window.navigator.vibrate(patterns[type]);
+  } catch (e) {
+    // Some browsers might block vibration if not triggered by user interaction
+    console.warn("Haptic feedback failed", e);
+  }
+}

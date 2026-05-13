@@ -27,8 +27,18 @@ export function AuthStyles() {
       }
       @keyframes pop {
         0% { transform: scale(1); }
-        50% { transform: scale(1.2); }
+        50% { transform: scale(1.08); }
         100% { transform: scale(1); }
+      }
+      @keyframes pulseSuccess {
+        0% { box-shadow: 0 0 0 0 rgba(29, 158, 117, 0.4); }
+        70% { box-shadow: 0 0 0 20px rgba(29, 158, 117, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(29, 158, 117, 0); }
+      }
+      @keyframes pulseError {
+        0% { box-shadow: 0 0 0 0 rgba(226, 75, 74, 0.4); }
+        70% { box-shadow: 0 0 0 20px rgba(226, 75, 74, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(226, 75, 74, 0); }
       }
     `}} />
   );

@@ -103,8 +103,17 @@ export const S: { [key: string]: CSSProperties } = {
     border: `0.5px solid ${TOKEN.border}`,
   },
   popAnim: {
-    transform: "scale(1.1)",
-    transition: "transform 0.1s ease-out",
+    animation: "pop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+  },
+  rippleEffect: {
+    position: "relative",
+    overflow: "hidden",
+  },
+  pulseSuccess: {
+    animation: "pulseSuccess 0.5s ease-out",
+  },
+  pulseError: {
+    animation: "pulseError 0.5s ease-out",
   },
   biometricOverlay: {
     position: "absolute",
