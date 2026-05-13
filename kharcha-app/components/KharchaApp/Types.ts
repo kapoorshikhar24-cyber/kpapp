@@ -1,3 +1,6 @@
+export type ScreenName = "lock" | "cat" | "amt" | "dash" | "hist" | "set";
+export type PeriodName = "today" | "week" | "month";
+
 export interface Category {
   id: string;
   label: string;

@@ -1,4 +1,4 @@
-import { Category } from "./Types";
+import { Category, Settings } from "./Types";
 
 export const CATEGORIES: Category[] = [
   { id: "food",     label: "Food",     icon: "🍱", color: "#EF9F27", bg: "#251E13" },
@@ -9,8 +9,22 @@ export const CATEGORIES: Category[] = [
   { id: "bills",    label: "Bills",    icon: "🧾",  color: "#8BBF3A", bg: "#1F2513" },
 ];
 
-export const PRESETS = [50, 100, 200, 500, 1000];
+export const AMOUNT_PRESETS = [50, 100, 200, 500, 1000];
 
 export const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
-export const SCREENS = ["lock", "cat", "amt", "dash", "hist", "set"];
+export const STORAGE_KEYS = {
+  EXPENSES: "kharcha_expenses",
+  SETTINGS: "kharcha_settings",
+};
+
+export const DEFAULT_SETTINGS: Settings = {
+  biometric: true,
+  pin: true,
+  voice: true,
+  haptic: true,
+  offline: true,
+  dailyBudget: 2000,
+  userName: "User",
+  userEmail: "",
+};

@@ -1,97 +1,74 @@
 "use client";
+/**
+ * KharchaApp/index.tsx
+ * Main entry point. Handles all state, screen routing, and screen rendering.
+ *
+ * Usage in Next.js:
+ *   import KharchaApp from "@/components/KharchaApp";
+ *   export default function Page() { return <KharchaApp />; }
+ */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { S } from "./Styles";
-import { CATEGORIES, PRESETS } from "./Constants";
-import { Expense, Settings, Category } from "./Types";
+import { useState, useEffect, useCallback } from "react";
+import type { ScreenName, PeriodName, Category, Expense, Settings } from "./Types";
+import { CATEGORIES, AMOUNT_PRESETS, DEFAULT_SETTINGS, STORAGE_KEYS } from "./Constants";
 import {
-  fmt,
-  todayKey,
-  weekExpenses,
-  groupByDate,
-  dateLabel,
-  loadStorage,
-  saveStorage,
-  greeting,
+  fmt, todayKey, greeting, dateLabel,
+  loadStorage, saveStorage,
+  filterByPeriod, sumExpenses, categoryTotal,
+  weeklyTotals, groupByDate, generateId,
 } from "./Utils";
+import { S, TOKEN } from "./Styles";
 import {
-  StatusBar,
-  HomeBar,
-  Toggle,
-  BarChart,
-  ExpenseRow,
+  StatusBar, HomeBar, Toggle,
+  SectionLabel, TogRow,
+  BarChart, ExpenseRow, CategoryBar, BudgetCard,
 } from "./SubComponents";
 
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function KharchaApp() {
-  // ── State ──
-  const [mounted, setMounted] = useState(false);
-  const [screen, setScreen] = useState("lock");
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [settings, setSettings] = useState<Settings>({
-    biometric: true,
-    pin: true,
-    voice: true,
-    haptic: true,
-    offline: true,
-    dailyBudget: 2000,
-    userName: "User",
-    userEmail: "",
-  });
 
-  // Hydrate from localStorage on mount
-  useEffect(() => {
-    setExpenses(loadStorage("kharcha_expenses", []));
-    setSettings(loadStorage("kharcha_settings", {
-      biometric: true,
-      pin: true,
-      voice: true,
-      haptic: true,
-      offline: true,
-      dailyBudget: 2000,
-      userName: "User",
-      userEmail: "",
-    }));
-    setMounted(true);
-  }, []);
+  // ── Core state ──────────────────────────────────────────────────────────────
+  const [screen, setScreen]     = useState<ScreenName>("lock");
+  const [expenses, setExpenses] = useState<Expense[]>(() =>
+    loadStorage<Expense[]>(STORAGE_KEYS.EXPENSES, [])
+  );
+  const [settings, setSettings] = useState<Settings>(() =>
+    loadStorage<Settings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS)
+  );
 
-  // Amount screen state
+  // ── Amount screen ────────────────────────────────────────────────────────────
   const [selCat, setSelCat] = useState<Category>(CATEGORIES[0]);
-  const [amtVal, setAmtVal] = useState(150);
-  const [note, setNote] = useState("");
+  const [amtVal, setAmtVal] = useState<number>(150);
+  const [note,   setNote]   = useState<string>("");
 
-  // Dashboard period
-  const [period, setPeriod] = useState("today");
+  // ── Dashboard ────────────────────────────────────────────────────────────────
+  const [period, setPeriod] = useState<PeriodName>("today");
 
-  // History filter
-  const [histCat, setHistCat] = useState("all");
-  const [histSearch, setHistSearch] = useState("");
+  // ── History ──────────────────────────────────────────────────────────────────
+  const [histCat,    setHistCat]    = useState<string>("all");
+  const [histSearch, setHistSearch] = useState<string>("");
 
-  // Voice
-  const [voiceOpen, setVoiceOpen] = useState(false);
-  const [voiceStep, setVoiceStep] = useState(0); // 0=listening 1=result
+  // ── Voice ────────────────────────────────────────────────────────────────────
+  const [voiceOpen, setVoiceOpen] = useState<boolean>(false);
+  const [voiceStep, setVoiceStep] = useState<0 | 1>(0);
 
-  // ── Persist ──
-  useEffect(() => {
-    if (mounted) saveStorage("kharcha_expenses", expenses);
-  }, [expenses, mounted]);
+  // ── Persist on change ────────────────────────────────────────────────────────
+  useEffect(() => saveStorage(STORAGE_KEYS.EXPENSES, expenses), [expenses]);
+  useEffect(() => saveStorage(STORAGE_KEYS.SETTINGS, settings), [settings]);
 
-  useEffect(() => {
-    if (mounted) saveStorage("kharcha_settings", settings);
-  }, [settings, mounted]);
-
-  // ── Navigation ──
-  const go = useCallback((s: string) => {
+  // ── Navigation ───────────────────────────────────────────────────────────────
+  const go = useCallback((s: ScreenName) => {
     setScreen(s);
     setVoiceOpen(false);
   }, []);
 
-  // ── Expense helpers ──
+  // ── Expense actions ──────────────────────────────────────────────────────────
   const addExpense = useCallback(() => {
     const e: Expense = {
-      id: Date.now().toString(),
-      category: selCat.id,
-      amount: amtVal,
-      note: note.trim(),
+      id:        generateId(),
+      category:  selCat.id,
+      amount:    amtVal,
+      note:      note.trim(),
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [e, ...prev]);
@@ -104,74 +81,35 @@ export default function KharchaApp() {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
-  if (!mounted) return null;
+  const updateSetting = useCallback(<K extends keyof Settings>(key: K, val: Settings[K]) => {
+    setSettings((s) => ({ ...s, [key]: val }));
+  }, []);
 
-  // ── Stats ──
-  const todayTotal = expenses
-    .filter((e) => e.createdAt.startsWith(todayKey()))
-    .reduce((s, e) => s + e.amount, 0);
+  // ── Derived values ───────────────────────────────────────────────────────────
+  const todayExpenses  = filterByPeriod(expenses, "today");
+  const todayTotal     = sumExpenses(todayExpenses);
+  const periodExpenses = filterByPeriod(expenses, period);
+  const periodTotal    = sumExpenses(periodExpenses);
+  const barData        = weeklyTotals(expenses);
 
-  const weekTotal = expenses
-    .filter((e) => {
-      const d = new Date(e.createdAt);
-      return Date.now() - d.getTime() < 7 * 86400000;
-    })
-    .reduce((s, e) => s + e.amount, 0);
-
-  const monthTotal = expenses
-    .filter((e) => {
-      const d = new Date(e.createdAt);
-      const now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    })
-    .reduce((s, e) => s + e.amount, 0);
-
-  const periodTotal = period === "today" ? todayTotal : period === "week" ? weekTotal : monthTotal;
-  const periodCount =
-    period === "today"
-      ? expenses.filter((e) => e.createdAt.startsWith(todayKey())).length
-      : period === "week"
-        ? expenses.filter((e) => Date.now() - new Date(e.createdAt).getTime() < 7 * 86400000).length
-        : expenses.filter((e) => {
-          const d = new Date(e.createdAt);
-          const n = new Date();
-          return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
-        }).length;
-
-  const budgetPct = Math.min(100, Math.round((todayTotal / settings.dailyBudget) * 100));
-  const barData = weekExpenses(expenses);
-
-  function catTotal(catId: string) {
-    return expenses
-      .filter((e) => {
-        const d = new Date(e.createdAt);
-        const n = new Date();
-        return e.category === catId && d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
-      })
-      .reduce((s, e) => s + e.amount, 0);
-  }
-
-  const topCats = CATEGORIES.map((c) => ({ ...c, total: catTotal(c.id) }))
+  const topCats = CATEGORIES
+    .map((c) => ({ ...c, total: categoryTotal(expenses, c.id) }))
     .filter((c) => c.total > 0)
     .sort((a, b) => b.total - a.total)
     .slice(0, 4);
-
   const maxCatTotal = Math.max(...topCats.map((c) => c.total), 1);
 
-  // ── Filtered history ──
   const filteredExpenses = expenses.filter((e) => {
-    const catMatch = histCat === "all" || e.category === histCat;
-    const searchMatch =
-      !histSearch ||
+    const catMatch  = histCat === "all" || e.category === histCat;
+    const noteMatch = !histSearch ||
       (e.note || "").toLowerCase().includes(histSearch.toLowerCase()) ||
       e.category.includes(histSearch.toLowerCase());
-    return catMatch && searchMatch;
+    return catMatch && noteMatch;
   });
-
   const groupedHistory = groupByDate(filteredExpenses);
-  const historyDates = Object.keys(groupedHistory).sort().reverse();
+  const historyDates   = Object.keys(groupedHistory).sort().reverse();
 
-  // ── Voice simulation ──
+  // ── Voice simulation ─────────────────────────────────────────────────────────
   function startVoice() {
     setVoiceStep(0);
     setVoiceOpen(true);
@@ -180,10 +118,10 @@ export default function KharchaApp() {
 
   function confirmVoice() {
     const e: Expense = {
-      id: Date.now().toString(),
-      category: "food",
-      amount: 200,
-      note: "Sharma dhaba",
+      id:        generateId(),
+      category:  "food",
+      amount:    200,
+      note:      "Sharma dhaba",
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [e, ...prev]);
@@ -191,148 +129,137 @@ export default function KharchaApp() {
     go("dash");
   }
 
-  // ─── SCREENS ────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  //  SCREENS
+  // ════════════════════════════════════════════════════════════════════════════
 
   function renderLock() {
     return (
       <div style={S.screen}>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.18em", color: "#44445A", marginBottom: 8, textTransform: "uppercase" }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.18em", color: TOKEN.muted, marginBottom: 8, textTransform: "uppercase" }}>
             Expense Tracker
           </div>
-          <div style={{ fontSize: 32, fontWeight: 600, color: "#F0EEE5", letterSpacing: -1, fontFamily: "monospace" }}>
+          <div style={{ fontSize: 32, fontWeight: 600, color: TOKEN.text, letterSpacing: -1, fontFamily: TOKEN.mono }}>
             KHARCHA
           </div>
         </div>
 
-        <button
-          onClick={() => go("cat")}
-          aria-label="Unlock with fingerprint"
-          style={S.biometricBtn as any}
-        >
+        <button onClick={() => go("cat")} aria-label="Unlock" style={S.biometricBtn}>
           <span style={{ fontSize: 40 }}>👆</span>
         </button>
 
         <div style={{ textAlign: "center" }}>
           <div style={{ color: "#888898", fontSize: 14 }}>Touch to unlock</div>
-          <div style={{ color: "#44445A", fontSize: 12, marginTop: 4 }}>or use PIN</div>
+          <div style={{ color: TOKEN.muted, fontSize: 12, marginTop: 4 }}>or use PIN</div>
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} style={S.pinDot as any}>
-              <span style={{ color: "#555565", fontSize: 18 }}>•</span>
+            <div key={i} style={S.pinDot}>
+              <span style={{ color: TOKEN.dim, fontSize: 18 }}>•</span>
             </div>
           ))}
         </div>
 
-        <div style={S.lastSession as any}>
-          <span style={{ color: "#44445A", fontSize: 11 }}>
+        <div style={S.lastSession}>
+          <span style={{ color: TOKEN.muted, fontSize: 11 }}>
             {expenses.length > 0
-              ? `Last: ${expenses.length} expenses • ${fmt(expenses.reduce((s, e) => s + e.amount, 0))}`
-              : "No expenses yet"}
+              ? `${expenses.length} expense${expenses.length > 1 ? "s" : ""} • ${fmt(sumExpenses(expenses))} total`
+              : "No expenses yet — tap to start"}
           </span>
         </div>
       </div>
     );
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
   function renderCat() {
     return (
-      <div style={{ ...S.screenPad, gap: 12 }}>
-        <div style={S.row}>
+      <div style={S.screenPad}>
+        {/* Header */}
+        <div style={{ ...S.row, marginBottom: 4 }}>
           <div>
             <div style={S.label}>Good {greeting()} 👋</div>
             <div style={S.heading}>New Expense</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={startVoice} style={S.iconBtn as any} aria-label="Voice logging">
+            <button onClick={startVoice} style={S.iconBtn} aria-label="Voice logging">
               <span style={{ fontSize: 16 }}>🎙️</span>
             </button>
-            <button onClick={() => go("dash")} style={S.iconBtn as any} aria-label="Close">
-              <span style={{ color: "#555565", fontSize: 16 }}>✕</span>
+            <button onClick={() => go("dash")} style={S.iconBtn} aria-label="Close">
+              <span style={{ color: TOKEN.dim, fontSize: 16 }}>✕</span>
             </button>
           </div>
         </div>
 
-        <div style={S.todayBanner as any}>
+        {/* Today banner */}
+        <div style={{ ...S.card, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={S.label}>Today's total</div>
-            <div style={{ fontSize: 24, fontWeight: 500, color: "#EF9F27", fontFamily: "monospace" }}>
+            <div style={{ fontSize: 24, fontWeight: 500, color: TOKEN.amber, fontFamily: TOKEN.mono }}>
               {fmt(todayTotal)}
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={S.label}>
-              {expenses.filter((e) => e.createdAt.startsWith(todayKey())).length} expenses
-            </div>
+            <div style={S.label}>{todayExpenses.length} expenses</div>
             <div style={S.label}>{new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</div>
           </div>
         </div>
 
+        {/* Voice overlay */}
         {voiceOpen && (
-          <div style={S.voiceBox as any}>
+          <div style={S.voiceBox}>
             <div style={S.label}>Say something like</div>
             <div style={{ fontSize: 13, color: "#D0CEC8", fontStyle: "italic", textAlign: "center" }}>
               "Spent 200 on food at Sharma dhaba"
             </div>
             <div
-              style={{
-                ...S.voiceRing,
-                background: voiceStep === 0 ? "#171720" : "#251E13",
-              } as any}
+              style={{ ...S.voiceRing, background: voiceStep === 0 ? "#171720" : "#251E13" }}
               onClick={() => voiceStep === 0 && setVoiceStep(1)}
             >
               <span style={{ fontSize: 28 }}>🎙️</span>
             </div>
-            <div style={{ fontSize: 12, color: "#EF9F27" }}>
+            <div style={{ fontSize: 12, color: TOKEN.amber }}>
               {voiceStep === 0 ? "Listening…" : "Done — tap Confirm"}
             </div>
             {voiceStep === 1 && (
               <>
-                <div style={S.voiceResult as any}>
+                <div style={S.voiceResult}>
                   <div style={S.label}>Detected</div>
-                  <div style={{ color: "#EF9F27", fontSize: 15, fontWeight: 500 }}>₹200 — Food</div>
+                  <div style={{ color: TOKEN.amber, fontSize: 15, fontWeight: 500 }}>₹200 — Food</div>
                   <div style={{ color: "#C0BEB8", fontSize: 12, marginTop: 2 }}>"Sharma dhaba"</div>
                 </div>
-                <button onClick={confirmVoice} style={S.confirmBtn as any}>
-                  Confirm &amp; Save
-                </button>
+                <button onClick={confirmVoice} style={S.confirmBtn}>Confirm &amp; Save</button>
               </>
             )}
-            <button
-              onClick={() => setVoiceOpen(false)}
-              style={{ background: "none", border: "none", color: "#44445A", cursor: "pointer", fontSize: 12 }}
-            >
+            <button onClick={() => setVoiceOpen(false)}
+              style={{ background: "none", border: "none", color: TOKEN.muted, cursor: "pointer", fontSize: 12 }}>
               Cancel
             </button>
           </div>
         )}
 
+        {/* Category grid */}
         {!voiceOpen && (
-          <div style={S.catGrid as any}>
+          <div style={S.catGrid}>
             {CATEGORIES.map((cat) => {
-              const total = catTotal(cat.id);
+              const total = categoryTotal(expenses, cat.id);
               return (
                 <button
                   key={cat.id}
-                  onClick={() => {
-                    setSelCat(cat);
-                    go("amt");
-                  }}
+                  onClick={() => { setSelCat(cat); go("amt"); }}
                   style={{
                     ...S.catBtn,
                     borderColor: selCat.id === cat.id ? cat.color : "#2E2E3E",
-                    background: selCat.id === cat.id ? cat.bg : "#1A1A24",
-                  } as any}
+                    background:  selCat.id === cat.id ? cat.bg   : "#1A1A24",
+                  }}
                 >
-                  <div style={{ ...S.picon, background: cat.bg } as any}>
+                  <div style={{ ...S.picon, background: cat.bg }}>
                     <span style={{ fontSize: 18 }}>{cat.icon}</span>
                   </div>
                   <div style={{ color: "#E0DEDB", fontSize: 13, fontWeight: 500 }}>{cat.label}</div>
-                  {total > 0 && (
-                    <div style={{ color: "#44445A", fontSize: 10 }}>{fmt(total)} this month</div>
-                  )}
+                  {total > 0 && <div style={{ color: TOKEN.muted, fontSize: 10 }}>{fmt(total)} this month</div>}
                 </button>
               );
             })}
@@ -342,182 +269,146 @@ export default function KharchaApp() {
     );
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
   function renderAmt() {
+    const remaining = Math.max(0, settings.dailyBudget - todayTotal);
+    const over      = remaining === 0;
+
     return (
-      <div style={{ ...S.screenPad, gap: 12 }}>
+      <div style={S.screenPad}>
+        {/* Header */}
         <div style={S.row}>
-          <button onClick={() => go("cat")} style={S.iconBtn as any} aria-label="Back">
+          <button onClick={() => go("cat")} style={S.iconBtn} aria-label="Back">
             <span style={{ color: "#888", fontSize: 16 }}>←</span>
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ ...S.picon, background: selCat.bg } as any}>
+            <div style={{ ...S.picon, background: selCat.bg }}>
               <span style={{ fontSize: 16 }}>{selCat.icon}</span>
             </div>
-            <span style={{ color: "#F0EEE5", fontSize: 15, fontWeight: 500 }}>{selCat.label}</span>
+            <span style={{ color: TOKEN.text, fontSize: 15, fontWeight: 500 }}>{selCat.label}</span>
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              padding: "4px 10px",
-              borderRadius: 10,
-              background: budgetPct > 90 ? "#251813" : "#1A2212",
-              color: budgetPct > 90 ? "#D85A30" : "#8BBF3A",
-            }}
-          >
-            {fmt(Math.max(0, settings.dailyBudget - todayTotal))} left
+          <div style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 10,
+            background: over ? "#251813" : "#1A2212",
+            color:      over ? "#D85A30" : "#8BBF3A",
+          }}>
+            {over ? "Over budget" : `${fmt(remaining)} left`}
           </div>
         </div>
 
-        <div style={S.card as any}>
+        {/* Note input */}
+        <div style={S.card}>
           <div style={S.label}>Note (optional)</div>
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Lunch, Petrol, Hotel…"
-            style={S.noteInput as any}
+            style={S.noteInput}
           />
         </div>
 
-        <div style={{ ...S.card, alignItems: "center", gap: 10 } as any}>
+        {/* Amount wheel */}
+        <div style={{ ...S.card, alignItems: "center", gap: 10 }}>
           <div style={S.label}>Amount (₹)</div>
-          <button onClick={() => setAmtVal((v) => v + 50)} style={S.adjBtn as any} aria-label="Increase by 50">▲</button>
+          <button onClick={() => setAmtVal((v) => v + 50)} style={S.adjBtn} aria-label="+50">▲</button>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 52, fontWeight: 500, color: "#F0EEE5", fontFamily: "monospace", letterSpacing: -2 }}>
+            <div style={{ fontSize: 52, fontWeight: 500, color: TOKEN.text, fontFamily: TOKEN.mono, letterSpacing: -2 }}>
               ₹{amtVal.toLocaleString("en-IN")}
             </div>
           </div>
-          <button onClick={() => setAmtVal((v) => Math.max(1, v - 50))} style={S.adjBtn as any} aria-label="Decrease by 50">▼</button>
-          <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap", justifyContent: "center" }}>
-            {[-10, -1, 1, 10].map((d) => (
-              <button key={d} onClick={() => setAmtVal((v) => Math.max(1, v + d))} style={S.fineBtn as any}>
+          <button onClick={() => setAmtVal((v) => Math.max(1, v - 50))} style={S.adjBtn} aria-label="-50">▼</button>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+            {([-10, -1, 1, 10] as const).map((d) => (
+              <button key={d} onClick={() => setAmtVal((v) => Math.max(1, v + d))} style={S.fineBtn}>
                 {d > 0 ? "+" : ""}{d}
               </button>
             ))}
           </div>
         </div>
 
+        {/* Presets */}
         <div>
           <div style={{ ...S.label, marginBottom: 6 }}>Quick presets</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {PRESETS.map((p) => (
-              <button key={p} onClick={() => setAmtVal(p)} style={S.presetBtn as any}>
-                {fmt(p)}
-              </button>
+            {AMOUNT_PRESETS.map((p) => (
+              <button key={p} onClick={() => setAmtVal(p)} style={S.presetBtn}>{fmt(p)}</button>
             ))}
           </div>
         </div>
 
-        <button onClick={addExpense} style={{ ...S.primaryBtn, marginTop: "auto" } as any}>
+        <button onClick={addExpense} style={{ ...S.primaryBtn, marginTop: "auto" }}>
           Save Expense
         </button>
       </div>
     );
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
   function renderDash() {
     return (
-      <div style={{ ...S.screenPad, gap: 10, overflowY: "auto" }}>
+      <div style={S.screenPad}>
+        {/* Header */}
         <div style={S.row}>
           <div>
-            <div style={S.label}>{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</div>
+            <div style={S.label}>
+              {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+            </div>
             <div style={S.heading}>Overview</div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => go("hist")} style={S.iconBtn as any} aria-label="History">
-              <span style={{ fontSize: 16 }}>📋</span>
-            </button>
-            <button onClick={() => go("set")} style={S.iconBtn as any} aria-label="Settings">
-              <span style={{ fontSize: 16 }}>⚙️</span>
-            </button>
+            <button onClick={() => go("hist")} style={S.iconBtn} aria-label="History">📋</button>
+            <button onClick={() => go("set")}  style={S.iconBtn} aria-label="Settings">⚙️</button>
           </div>
         </div>
 
-        <div style={S.tabRow as any}>
-          {["today", "week", "month"].map((p) => (
+        {/* Period tabs */}
+        <div style={S.tabRow}>
+          {(["today", "week", "month"] as PeriodName[]).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
               style={{
-                ...S.tabBtn,
-                background: period === p ? "#EF9F27" : "transparent",
-                color: period === p ? "#412402" : "#44445A",
+                flex: 1, padding: 7, borderRadius: 8, border: "none",
+                fontSize: 12, cursor: "pointer",
+                background: period === p ? TOKEN.amber : "transparent",
+                color:      period === p ? TOKEN.amberText : TOKEN.muted,
                 fontWeight: period === p ? 600 : 400,
-              } as any}
+              }}
             >
               {p.charAt(0).toUpperCase() + p.slice(1)}
             </button>
           ))}
         </div>
 
-        <div style={S.card as any}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={S.label}>Total spent</div>
-              <div style={{ fontSize: 38, fontWeight: 500, color: "#F0EEE5", fontFamily: "monospace", letterSpacing: -1 }}>
-                {fmt(periodTotal)}
-              </div>
-              <div style={{ color: "#44445A", fontSize: 12, marginTop: 4 }}>{periodCount} expenses</div>
-            </div>
-            {period === "today" && (
-              <div style={{ textAlign: "right" }}>
-                <div style={S.label}>Daily Budget</div>
-                <div style={{ color: "#EF9F27", fontSize: 18, fontWeight: 500, fontFamily: "monospace" }}>
-                  {fmt(settings.dailyBudget)}
-                </div>
-                <div style={{ width: 80, height: 5, background: "#22222C", borderRadius: 3, marginTop: 6 }}>
-                  <div
-                    style={{
-                      width: `${budgetPct}%`,
-                      height: "100%",
-                      background: budgetPct > 90 ? "#D85A30" : "#EF9F27",
-                      borderRadius: 3,
-                      transition: "width 0.4s",
-                    }}
-                  />
-                </div>
-                <div style={{ color: "#44445A", fontSize: 11, marginTop: 3 }}>{budgetPct}% used</div>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Budget card */}
+        <BudgetCard
+          total={periodTotal}
+          budget={settings.dailyBudget}
+          count={periodExpenses.length}
+          period={period}
+        />
 
-        <div style={S.card as any}>
+        {/* Weekly chart */}
+        <div style={S.card}>
           <div style={{ color: "#666678", fontSize: 12, marginBottom: 10 }}>This week</div>
           <BarChart data={barData} />
         </div>
 
+        {/* Category breakdown */}
         {topCats.length > 0 && (
-          <div style={S.card as any}>
+          <div style={S.card}>
             <div style={{ color: "#666678", fontSize: 12, marginBottom: 10 }}>By category</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {topCats.map((c) => (
-                <div key={c.id}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 14 }}>{c.icon}</span>
-                      <span style={{ color: "#C8C6C0", fontSize: 12 }}>{c.label}</span>
-                    </div>
-                    <span style={{ color: "#C8C6C0", fontSize: 12, fontFamily: "monospace" }}>{fmt(c.total)}</span>
-                  </div>
-                  <div style={{ height: 5, background: "#22222C", borderRadius: 3 }}>
-                    <div
-                      style={{
-                        width: `${Math.round((c.total / maxCatTotal) * 100)}%`,
-                        height: "100%",
-                        background: c.color,
-                        borderRadius: 3,
-                        transition: "width 0.4s",
-                      }}
-                    />
-                  </div>
-                </div>
+                <CategoryBar key={c.id} icon={c.icon} label={c.label} color={c.color} total={c.total} max={maxCatTotal} />
               ))}
             </div>
           </div>
         )}
 
-        {expenses.length > 0 && (
+        {/* Recent expenses */}
+        {expenses.slice(0, 3).length > 0 && (
           <>
             <div style={{ ...S.label, marginTop: 4 }}>Recent</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -528,55 +419,61 @@ export default function KharchaApp() {
           </>
         )}
 
+        {expenses.length === 0 && (
+          <div style={{ textAlign: "center", padding: "24px 0", color: TOKEN.muted, fontSize: 13 }}>
+            No expenses yet. Tap below to add one!
+          </div>
+        )}
+
+        {/* FAB */}
         <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px" }}>
-          <button onClick={() => go("cat")} style={S.fab as any}>
-            <span style={{ color: "#412402", fontSize: 16 }}>＋</span>
-            <span style={{ color: "#412402", fontSize: 14, fontWeight: 500 }}>Add expense</span>
+          <button onClick={() => go("cat")} style={S.fab}>
+            <span style={{ color: TOKEN.amberText, fontSize: 16 }}>＋</span>
+            <span style={{ color: TOKEN.amberText, fontSize: 14, fontWeight: 500 }}>Add expense</span>
           </button>
         </div>
       </div>
     );
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
   function renderHist() {
     return (
-      <div style={{ ...S.screenPad, gap: 10, overflowY: "auto" }}>
+      <div style={S.screenPad}>
+        {/* Header */}
         <div style={S.row}>
-          <button onClick={() => go("dash")} style={S.iconBtn as any} aria-label="Back">
-            <span style={{ color: "#888", fontSize: 16 }}>←</span>
-          </button>
+          <button onClick={() => go("dash")} style={S.iconBtn} aria-label="Back">←</button>
           <div style={S.heading}>History</div>
           <div style={{ width: 34 }} />
         </div>
 
-        <div style={{ ...S.card, flexDirection: "row", gap: 8, alignItems: "center" } as any}>
-          <span style={{ color: "#44445A", fontSize: 14 }}>🔍</span>
+        {/* Search */}
+        <div style={{ ...S.card, flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <span style={{ color: TOKEN.muted, fontSize: 14 }}>🔍</span>
           <input
             type="text"
             value={histSearch}
             onChange={(e) => setHistSearch(e.target.value)}
             placeholder="Search expenses…"
-            style={S.noteInput as any}
+            style={S.noteInput}
           />
         </div>
 
+        {/* Category filter chips */}
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
           {["all", ...CATEGORIES.map((c) => c.id)].map((f) => {
-            const cat = CATEGORIES.find((c) => c.id === f);
+            const cat    = CATEGORIES.find((c) => c.id === f);
             const active = histCat === f;
             return (
               <button
                 key={f}
                 onClick={() => setHistCat(f)}
                 style={{
-                  whiteSpace: "nowrap",
-                  padding: "5px 12px",
-                  borderRadius: 20,
-                  fontSize: 11,
-                  border: `0.5px solid ${active ? "#EF9F27" : "#2E2E3E"}`,
-                  background: active ? "#251E13" : "transparent",
-                  color: active ? "#EF9F27" : "#666",
-                  cursor: "pointer",
+                  whiteSpace: "nowrap", padding: "5px 12px", borderRadius: 20,
+                  fontSize: 11, cursor: "pointer",
+                  border:      `0.5px solid ${active ? TOKEN.amber : "#2E2E3E"}`,
+                  background:  active ? "#251E13" : "transparent",
+                  color:       active ? TOKEN.amber : "#666",
                 }}
               >
                 {cat ? `${cat.icon} ${cat.label}` : "All"}
@@ -585,15 +482,16 @@ export default function KharchaApp() {
           })}
         </div>
 
+        {/* Grouped list */}
         {historyDates.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "24px 0", color: "#44445A", fontSize: 13 }}>
+          <div style={{ textAlign: "center", padding: "24px 0", color: TOKEN.muted, fontSize: 13 }}>
             No expenses found
           </div>
         ) : (
           historyDates.map((date) => (
             <div key={date}>
               <div style={{ ...S.label, marginBottom: 6 }}>
-                {dateLabel(date)} • {fmt(groupedHistory[date].reduce((s, e) => s + e.amount, 0))}
+                {dateLabel(date)} • {fmt(sumExpenses(groupedHistory[date]))}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {groupedHistory[date].map((e) => (
@@ -607,60 +505,75 @@ export default function KharchaApp() {
     );
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
   function renderSet() {
+    const allTimeTotal = sumExpenses(expenses);
+
     return (
-      <div style={{ ...S.screenBase, overflowY: "auto" }}>
-        <div style={{ ...S.row, padding: "20px 20px 12px", borderBottom: "0.5px solid #28283A" }}>
-          <button onClick={() => go("dash")} style={S.iconBtn as any} aria-label="Back">
-            <span style={{ color: "#888", fontSize: 16 }}>←</span>
-          </button>
+      <div style={S.screenBase}>
+        {/* Header */}
+        <div style={{ ...S.row, padding: "20px 20px 12px", borderBottom: `0.5px solid ${TOKEN.border}` }}>
+          <button onClick={() => go("dash")} style={S.iconBtn} aria-label="Back">←</button>
           <div style={S.heading}>Settings</div>
           <div style={{ width: 34 }} />
         </div>
 
-        <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "0.5px solid #1A1A24" }}>
-          <div style={{ width: 46, height: 46, borderRadius: "50%", background: "#251E13", border: "1.5px solid #EF9F27", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ color: "#EF9F27", fontSize: 16, fontWeight: 500 }}>
+        {/* Profile */}
+        <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: `0.5px solid ${TOKEN.borderSub}` }}>
+          <div style={{ width: 46, height: 46, borderRadius: "50%", background: "#251E13", border: `1.5px solid ${TOKEN.amber}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ color: TOKEN.amber, fontSize: 16, fontWeight: 500 }}>
               {(settings.userName || "U").slice(0, 2).toUpperCase()}
             </span>
           </div>
           <div style={{ flex: 1 }}>
-            <input
-              value={settings.userName}
-              onChange={(e) => setSettings(s => ({ ...s, userName: e.target.value }))}
-              style={{ ...S.noteInput, fontSize: 14, color: "#F0EEE5", fontWeight: 500, width: "100%" } as any}
-              placeholder="Your name"
-            />
-            <input
-              value={settings.userEmail}
-              onChange={(e) => setSettings(s => ({ ...s, userEmail: e.target.value }))}
-              style={{ ...S.noteInput, fontSize: 12, color: "#44445A", marginTop: 2, width: "100%" } as any}
-              placeholder="Email"
-              type="email"
-            />
+            <input value={settings.userName} onChange={(e) => updateSetting("userName", e.target.value)}
+              style={{ ...S.noteInput, fontSize: 14, color: TOKEN.text, fontWeight: 500 }} placeholder="Your name" />
+            <input value={settings.userEmail} onChange={(e) => updateSetting("userEmail", e.target.value)}
+              style={{ ...S.noteInput, fontSize: 12, color: TOKEN.muted, marginTop: 2 }} placeholder="Email" type="email" />
+          </div>
+          <span style={{ fontSize: 10, padding: "3px 9px", borderRadius: 10, background: "#1D9E7520", color: TOKEN.success, border: `0.5px solid ${TOKEN.success}60` }}>
+            {expenses.length} saved
+          </span>
+        </div>
+
+        <SectionLabel>Security</SectionLabel>
+        <TogRow label="Biometric unlock" sub="Fingerprint / Face ID" val={settings.biometric} onChange={(v) => updateSetting("biometric", v)} />
+        <TogRow label="PIN fallback"     sub="4-digit backup PIN"    val={settings.pin}       onChange={(v) => updateSetting("pin", v)} />
+
+        <SectionLabel>Preferences</SectionLabel>
+        <TogRow label="Voice logging"   sub="AI expense detection"    val={settings.voice}   onChange={(v) => updateSetting("voice", v)} />
+        <TogRow label="Haptic feedback" sub="Vibrate on amount change" val={settings.haptic}  onChange={(v) => updateSetting("haptic", v)} />
+        <TogRow label="Offline mode"    sub="Cache entries locally"    val={settings.offline} onChange={(v) => updateSetting("offline", v)} />
+
+        <SectionLabel>Budget</SectionLabel>
+        <div style={{ padding: "0 20px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ color: TOKEN.textSub, fontSize: 13 }}>Daily budget</div>
+            <div style={{ color: TOKEN.amber, fontSize: 13, fontFamily: TOKEN.mono, fontWeight: 500 }}>
+              {fmt(settings.dailyBudget)}
+            </div>
+          </div>
+          <input type="range" min="500" max="20000" step="500" value={settings.dailyBudget}
+            onChange={(e) => updateSetting("dailyBudget", parseInt(e.target.value))}
+            style={{ width: "100%", accentColor: TOKEN.amber }} />
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={S.label}>₹500</span>
+            <span style={S.label}>₹20,000</span>
           </div>
         </div>
 
-        <div style={{ padding: "20px" }}>
-          <div style={S.label}>Daily budget</div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-            <span style={{ color: "#EF9F27", fontSize: 20, fontWeight: 600 }}>{fmt(settings.dailyBudget)}</span>
+        <SectionLabel>Data</SectionLabel>
+        <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ ...S.card, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ color: TOKEN.textSub, fontSize: 13 }}>Total expenses</div>
+              <div style={{ color: TOKEN.muted, fontSize: 11 }}>{fmt(allTimeTotal)} all time</div>
+            </div>
+            <span style={{ color: TOKEN.amber, fontSize: 22, fontWeight: 600, fontFamily: TOKEN.mono }}>{expenses.length}</span>
           </div>
-          <input
-            type="range"
-            min="500"
-            max="10000"
-            step="500"
-            value={settings.dailyBudget}
-            onChange={(e) => setSettings(s => ({ ...s, dailyBudget: parseInt(e.target.value) }))}
-            style={{ width: "100%", marginTop: 12, accentColor: "#EF9F27" }}
-          />
-        </div>
-
-        <div style={{ padding: "0 20px" }}>
           <button
-            onClick={() => { if (confirm("Are you sure?")) setExpenses([]); }}
-            style={{ width: "100%", padding: 12, background: "#1A1A24", border: "0.5px solid #28283A", borderRadius: 10, color: "#E24B4A", fontSize: 13, cursor: "pointer" }}
+            onClick={() => { if (window.confirm("Clear all expense data? This cannot be undone.")) setExpenses([]); }}
+            style={S.dangerBtn}
           >
             Clear all data
           </button>
@@ -669,17 +582,18 @@ export default function KharchaApp() {
     );
   }
 
+  // ─── Root render ─────────────────────────────────────────────────────────────
   return (
-    <div style={S.root as any}>
-      <div style={S.phone as any}>
+    <div style={S.root}>
+      <div style={S.phone}>
         <StatusBar />
-        <div style={S.body as any}>
+        <div style={S.body}>
           {screen === "lock" && renderLock()}
-          {screen === "cat" && renderCat()}
-          {screen === "amt" && renderAmt()}
+          {screen === "cat"  && renderCat()}
+          {screen === "amt"  && renderAmt()}
           {screen === "dash" && renderDash()}
           {screen === "hist" && renderHist()}
-          {screen === "set" && renderSet()}
+          {screen === "set"  && renderSet()}
         </div>
         <HomeBar />
       </div>
