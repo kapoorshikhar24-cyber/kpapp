@@ -4,14 +4,17 @@ This folder contains the **Kharcha Expense Tracker**, a modern Next.js applicati
 
 ## Directory Structure
 
-- `kharcha-app/`: The main Next.js application.
-  - `components/KharchaApp/`: A modular implementation of the core application screens and logic.
-    - `index.tsx`: Main application state and screen router.
-    - `SubComponents.tsx`: Reusable UI elements like `StatusBar`, `HomeBar`, `BarChart`, and `ExpenseRow`.
-    - `Styles.ts`: Centralized CSS-in-JS design system.
-    - `Utils.ts`: Helper functions for date formatting, storage, and calculations.
-    - `Constants.ts`: Shared configuration and category definitions.
-    - `Types.ts`: TypeScript interfaces for robust type safety.
+- `app/`: Next.js App Router (Root layout and main page).
+- `components/KharchaApp/`: Modular Component Architecture.
+  - `index.tsx`: State management & Screen routing.
+  - `Styles.ts`: Centralized Design System.
+  - `SubComponents.tsx`: Reusable UI Widgets.
+  - `Utils.ts`: Helper functions & Storage logic.
+  - `Constants.ts`: Configuration & Category data.
+  - `Types.ts`: TypeScript Definitions.
+- `public/`: Static Assets (Icons, SVGs).
+- `detail/`: Project Documentation.
+- `package.json`: Dependencies & Scripts.
 
 ## Key Features
 
