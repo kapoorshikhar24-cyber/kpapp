@@ -2,9 +2,9 @@
 // SubComponents.tsx — Reusable UI widgets for Kharcha
 
 import { useState, useEffect, CSSProperties } from "react";
-import type { Expense } from "./Types";
+import type { Expense, Category } from "./Types";
 import { S, TOKEN } from "./Styles";
-import { CATEGORIES, DAY_LABELS } from "./Constants";
+import { DAY_LABELS } from "./Constants";
 import { fmt, dateLabel } from "./Utils";
 
 // ─── StatusBar ────────────────────────────────────────────────────────────────
@@ -31,8 +31,8 @@ export function StatusBar() {
       <span style={S.statusTime}>{time}</span>
       <div style={S.notch} />
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <span style={{ color: TOKEN.dim, fontSize: 12 }}>▲</span>
-        <span style={{ color: TOKEN.dim, fontSize: 12 }}>▮</span>
+        <WifiIcon size={13} color={TOKEN.dim} />
+        <BatteryIcon size={13} color={TOKEN.dim} />
       </div>
     </div>
   );
@@ -48,18 +48,140 @@ export function HomeBar() {
 }
 
 // ─── FingerprintIcon ──────────────────────────────────────────────────────────
-export function FingerprintIcon({ size = 40, color = TOKEN.amber }: { size?: number; color?: string }) {
+export function FingerprintIcon({ size = 24, color = TOKEN.amber }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18.9 7a8 8 0 0 1 1.1 5v1a6 6 0 0 0 .8 3" />
+      <path d="M8 11a4 4 0 0 1 8 0v1a10 10 0 0 0 .8 4" />
+      <path d="M12 11v2a14 14 0 0 0 .8 4.7" />
+      <path d="M5.1 11.7a9 9 0 0 1 14.9 -1.7" />
+      <path d="M3.5 13a12 12 0 0 1 17 0" />
+      <path d="M12 21a10 10 0 0 1 -10 -10" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ size = 16, color = "currentColor" }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 12c0-4.4 3.6-8 8-8s8 3.6 8 8" />
-      <path d="M5 15c0-2.8 2.2-5 5-5s5 2.2 5 5" />
-      <path d="M8 18c0-1.1.9-2 2-2s2 .9 2 2" />
-      <path d="M11 20c0-6.6 5.4-12 12-12" />
-      <path d="M14 22c0-9.9 8.1-18 18-18" />
-      <path d="M2 12v1" />
-      <path d="M5 15v1" />
-      <path d="M8 18v1" />
-      <path d="M11 20v1" />
+      <path d="M12 5l0 14" />
+      <path d="M5 12l14 0" />
+    </svg>
+  );
+}
+
+export function ArrowLeftIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12l14 0" />
+      <path d="M5 12l6 6" />
+      <path d="M5 12l6 -6" />
+    </svg>
+  );
+}
+
+export function BellIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 5a2 2 0 0 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6" />
+      <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
+    </svg>
+  );
+}
+
+export function XIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6l-12 12" />
+      <path d="M6 6l12 12" />
+    </svg>
+  );
+}
+
+export function WifiIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 18l.01 0" />
+      <path d="M9.172 15.172a4 4 0 0 1 5.656 0" />
+      <path d="M6.343 12.343a8 8 0 0 1 11.314 0" />
+      <path d="M3.515 9.515c4.686 -4.687 12.284 -4.687 17 0" />
+    </svg>
+  );
+}
+
+export function BatteryIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 7h11a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-11a2 2 0 0 1 -2 -2v-6a2 2 0 0 1 2 -2" />
+      <path d="M19 10h1a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-1" />
+      <path d="M7 10v4" />
+      <path d="M10 10v4" />
+    </svg>
+  );
+}
+
+export function KitchenIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3v12l0 0a3 3 0 0 0 3 3l0 0v2" />
+      <path d="M11 3v12" />
+      <path d="M16 3v12l0 0a3 3 0 0 1 -3 3l0 0v2" />
+      <path d="M9 18h4" />
+    </svg>
+  );
+}
+
+export function PlaneIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 10h4a2 2 0 0 1 0 4h-4l-4 7h-3l2 -7h-4l-2 2h-3l2 -4l-2 -4h3l2 2h4l-2 -7h3z" />
+    </svg>
+  );
+}
+
+export function GasStationIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 11h1a2 2 0 0 1 2 2v3a1.5 1.5 0 0 0 3 0V9l-3 -3" />
+      <path d="M4 20V6a2 2 0 0 1 2 -2h6a2 2 0 0 1 2 2v14" />
+      <path d="M3 20l11 0" />
+      <path d="M18 7v1a1 1 0 0 0 1 1h1" />
+      <path d="M4 11l10 0" />
+    </svg>
+  );
+}
+
+export function ShoppingBagIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6.331 8h11.339a2 2 0 0 1 1.977 2.304l-1.255 8.152a3 3 0 0 1 -2.966 2.544h-6.852a3 3 0 0 1 -2.965 -2.544l-1.255 -8.152a2 2 0 0 1 1.977 -2.304z" />
+      <path d="M9 11v-5a3 3 0 0 1 6 0v5" />
+    </svg>
+  );
+}
+
+export function BuildingIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 21l18 0" />
+      <path d="M9 8l1 0" />
+      <path d="M9 12l1 0" />
+      <path d="M9 16l1 0" />
+      <path d="M14 8l1 0" />
+      <path d="M14 12l1 0" />
+      <path d="M14 16l1 0" />
+      <path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16" />
+    </svg>
+  );
+}
+
+export function ReceiptIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2" />
+      <path d="M9 7l6 0" />
+      <path d="M9 11l6 0" />
+      <path d="M9 15l4 0" />
     </svg>
   );
 }
@@ -159,15 +281,28 @@ export function BarChart({ data }: BarChartProps) {
   );
 }
 
+export function CatIcon({ id, size = 18, color = "currentColor" }: { id: string; size?: number; color?: string }) {
+  switch (id) {
+    case "food":     return <KitchenIcon size={size} color={color} />;
+    case "travel":   return <PlaneIcon size={size} color={color} />;
+    case "fuel":     return <GasStationIcon size={size} color={color} />;
+    case "shopping": return <ShoppingBagIcon size={size} color={color} />;
+    case "lodging":  return <BuildingIcon size={size} color={color} />;
+    case "bills":    return <ReceiptIcon size={size} color={color} />;
+    default:         return <span style={{ fontSize: size }}>📦</span>;
+  }
+}
+
 // ─── ExpenseRow ───────────────────────────────────────────────────────────────
 interface ExpenseRowProps {
   expense: Expense;
   onDelete: (id: string) => void;
+  categories: Category[]; // Added categories prop
 }
 
-export function ExpenseRow({ expense, onDelete }: ExpenseRowProps) {
+export function ExpenseRow({ expense, onDelete, categories }: ExpenseRowProps) {
   const [swiped, setSwiped] = useState(false);
-  const cat = CATEGORIES.find((c) => c.id === expense.category) ?? CATEGORIES[0];
+  const cat = categories.find((c) => c.id === expense.category) ?? categories[0];
 
   return (
     <div
@@ -180,24 +315,20 @@ export function ExpenseRow({ expense, onDelete }: ExpenseRowProps) {
       onClick={() => setSwiped((s) => !s)}
     >
       <div style={{ ...S.picon, background: cat.bg }}>
-        <span style={{ fontSize: 18 }}>{cat.icon}</span>
+        <CatIcon id={cat.icon} size={18} color={cat.color} />
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ color: TOKEN.textSub, fontSize: 13 }}>
+        <div style={{ color: TOKEN.textSub, fontSize: 13, fontWeight: 400 }}>
           {expense.note || cat.label}
         </div>
         <div style={{ color: TOKEN.muted, fontSize: 11, marginTop: 2 }}>
-          {cat.label} •{" "}
-          {new Date(expense.createdAt).toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {cat.label} &bull; {new Date(expense.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
         </div>
       </div>
       <div
         style={{
           color: TOKEN.text,
-          fontSize: 13,
+          fontSize: 14,
           fontVariantNumeric: "tabular-nums",
           fontWeight: 500,
           fontFamily: TOKEN.mono,
@@ -231,30 +362,19 @@ interface CategoryBarProps {
   max: number;
 }
 
-export function CategoryBar({ icon, label, color, total, max }: CategoryBarProps) {
+export function CategoryBar({ category, total, max }: { category: Category; total: number; max: number }) {
+  const pct = Math.min(100, Math.round((total / max) * 100));
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 14 }}>{icon}</span>
-          <span style={{ color: TOKEN.textFaint, fontSize: 12 }}>{label}</span>
+          <CatIcon id={category.icon} size={14} color={category.color} />
+          <span style={{ color: "#C8C6C0", fontSize: 13 }}>{category.label}</span>
         </div>
-        <span
-          style={{ color: TOKEN.textFaint, fontSize: 12, fontFamily: TOKEN.mono }}
-        >
-          {fmt(total)}
-        </span>
+        <span style={{ color: "#C8C6C0", fontSize: 13, fontFamily: TOKEN.mono }}>{fmt(total)}</span>
       </div>
-      <div style={{ height: 5, background: "#22222C", borderRadius: 3 }}>
-        <div
-          style={{
-            width: `${Math.round((total / max) * 100)}%`,
-            height: "100%",
-            background: color,
-            borderRadius: 3,
-            transition: "width 0.4s",
-          }}
-        />
+      <div style={{ height: 5, background: "#22222C", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: category.color, borderRadius: 3, transition: "width 0.4s ease-out" }} />
       </div>
     </div>
   );
@@ -268,69 +388,27 @@ interface BudgetCardProps {
   period: string;
 }
 
-export function BudgetCard({ total, budget, count, period }: BudgetCardProps) {
-  const pct = Math.min(100, Math.round((total / budget) * 100));
-  const over = pct > 90;
-
+export function BudgetCard({ total, count, date }: { total: number; count: number; date: string }) {
   return (
-    <div style={S.card}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <div style={S.label}>Total spent</div>
-          <div
-            style={{
-              fontSize: 38,
-              fontWeight: 500,
-              color: TOKEN.text,
-              fontFamily: TOKEN.mono,
-              letterSpacing: -1,
-            }}
-          >
-            {fmt(total)}
-          </div>
-          <div style={{ color: TOKEN.muted, fontSize: 12, marginTop: 4 }}>
-            {count} expense{count !== 1 ? "s" : ""}
-          </div>
-        </div>
-
-        {period === "today" && (
-          <div style={{ textAlign: "right" }}>
-            <div style={S.label}>Daily Budget</div>
-            <div
-              style={{
-                color: TOKEN.amber,
-                fontSize: 18,
-                fontWeight: 500,
-                fontFamily: TOKEN.mono,
-              }}
-            >
-              {fmt(budget)}
-            </div>
-            <div
-              style={{
-                width: 80,
-                height: 5,
-                background: "#22222C",
-                borderRadius: 3,
-                marginTop: 6,
-              }}
-            >
-              <div
-                style={{
-                  width: `${pct}%`,
-                  height: "100%",
-                  background: over ? "#D85A30" : TOKEN.amber,
-                  borderRadius: 3,
-                  transition: "width 0.4s",
-                }}
-              />
-            </div>
-            <div style={{ color: TOKEN.muted, fontSize: 11, marginTop: 3 }}>
-              {pct}% used
-            </div>
-          </div>
-        )}
+    <div style={S.todayBanner}>
+      <div>
+        <div style={{ color: "#44445A", fontSize: 11 }}>Today's total</div>
+        <div style={{ color: TOKEN.amber, fontSize: 24, fontWeight: 500, fontFamily: TOKEN.mono }}>{fmt(total)}</div>
       </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ color: "#44445A", fontSize: 11 }}>{count} expenses</div>
+        <div style={{ color: "#44445A", fontSize: 11 }}>{date}</div>
+      </div>
+    </div>
+  );
+}
+
+export function OverviewCard({ total, sub }: { total: number; sub: string }) {
+  return (
+    <div style={{ ...S.card, padding: 18 }}>
+      <div style={{ color: "#44445A", fontSize: 11, marginBottom: 4 }}>Total spent</div>
+      <div style={{ fontSize: 40, fontWeight: 500, color: TOKEN.text, fontFamily: TOKEN.mono, letterSpacing: -1 }}>{fmt(total)}</div>
+      <div style={{ color: "#44445A", fontSize: 12, marginTop: 4 }}>{sub}</div>
     </div>
   );
 }

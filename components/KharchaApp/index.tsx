@@ -22,6 +22,7 @@ import {
   StatusBar, HomeBar, Toggle, FingerprintIcon,
   SectionLabel, TogRow,
   BarChart, ExpenseRow, CategoryBar, BudgetCard,
+  CatIcon, ArrowLeftIcon, BellIcon, PlusIcon, OverviewCard,
 } from "./SubComponents";
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -29,17 +30,18 @@ export default function KharchaApp() {
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [screen, setScreen]     = useState<ScreenName>("lock");
-  const [expenses, setExpenses] = useState<Expense[]>(() =>
-    loadStorage<Expense[]>(STORAGE_KEYS.EXPENSES, [])
-  );
-  const [settings, setSettings] = useState<Settings>(() =>
-    loadStorage<Settings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS)
-  );
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   // ── Amount screen ────────────────────────────────────────────────────────────
   const [selCat, setSelCat] = useState<Category>(CATEGORIES[0]);
   const [amtVal, setAmtVal] = useState<number>(150);
   const [note,   setNote]   = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // ── Categories ──────────────────────────────────────────────────────────────
+  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
 
   // ── Dashboard ────────────────────────────────────────────────────────────────
   const [period, setPeriod] = useState<PeriodName>("today");
@@ -56,9 +58,27 @@ export default function KharchaApp() {
   const [pinInput, setPinInput] = useState<string>("");
   const [shake, setShake] = useState(false);
 
+  // ── Load from storage ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const savedExp = loadStorage<Expense[]>(STORAGE_KEYS.EXPENSES, []);
+    const savedSet = loadStorage<Settings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    setExpenses(savedExp);
+    setSettings(savedSet);
+    setCategories(savedSet.customCategories || CATEGORIES);
+    setHasLoaded(true);
+  }, []);
+
   // ── Persist on change ────────────────────────────────────────────────────────
-  useEffect(() => saveStorage(STORAGE_KEYS.EXPENSES, expenses), [expenses]);
-  useEffect(() => saveStorage(STORAGE_KEYS.SETTINGS, settings), [settings]);
+  useEffect(() => {
+    if (!hasLoaded) return;
+    saveStorage(STORAGE_KEYS.EXPENSES, expenses);
+  }, [expenses, hasLoaded]);
+
+  useEffect(() => {
+    if (!hasLoaded) return;
+    const nextSettings = { ...settings, customCategories: categories };
+    saveStorage(STORAGE_KEYS.SETTINGS, nextSettings);
+  }, [settings, categories, hasLoaded]);
 
   // ── Navigation ───────────────────────────────────────────────────────────────
   const go = useCallback((s: ScreenName) => {
@@ -81,7 +101,7 @@ export default function KharchaApp() {
     if (next.length <= 4) {
       setPinInput(next);
       if (next.length === 4) {
-        if (next === "1234") { // Default PIN for now
+        if (next === settings.pinCode) {
           setTimeout(() => go("dash"), 200);
         } else {
           setShake(true);
@@ -97,7 +117,14 @@ export default function KharchaApp() {
   const clearPin = () => setPinInput("");
 
   // ── Expense actions ──────────────────────────────────────────────────────────
+  const updateAmt = useCallback((delta: number) => {
+    setAmtVal((prev) => Math.max(1, prev + delta));
+  }, []);
+
   const addExpense = useCallback(() => {
+    if (isSaving) return;
+    
+    setIsSaving(true);
     const e: Expense = {
       id:        generateId(),
       category:  selCat.id,
@@ -106,10 +133,14 @@ export default function KharchaApp() {
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [e, ...prev]);
-    setNote("");
-    setAmtVal(150);
-    go("dash");
-  }, [selCat, amtVal, note, go]);
+    
+    setTimeout(() => {
+      setIsSaving(false);
+      setNote("");
+      setAmtVal(150);
+      go("dash");
+    }, 900);
+  }, [selCat, amtVal, note, go, isSaving]);
 
   const deleteExpense = useCallback((id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
@@ -126,7 +157,7 @@ export default function KharchaApp() {
   const periodTotal    = sumExpenses(periodExpenses);
   const barData        = weeklyTotals(expenses);
 
-  const topCats = CATEGORIES
+  const topCats = categories
     .map((c) => ({ ...c, total: categoryTotal(expenses, c.id) }))
     .filter((c) => c.total > 0)
     .sort((a, b) => b.total - a.total)
@@ -172,51 +203,26 @@ export default function KharchaApp() {
       <div style={{ ...S.screen, ...(shake ? S.shakeAnim : {}) } as any}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.18em", color: TOKEN.muted, marginBottom: 8, textTransform: "uppercase" }}>
-            Secure Access
+            Expense Tracker
           </div>
-          <div style={{ fontSize: 32, fontWeight: 600, color: TOKEN.text, letterSpacing: -1, fontFamily: TOKEN.mono }}>
+          <div style={{ fontSize: 32, fontWeight: 500, color: TOKEN.text, letterSpacing: -1, fontFamily: TOKEN.mono }}>
             KHARCHA
           </div>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 32, width: "100%", margin: "20px 0" }}>
-            <button onClick={handleBiometric} aria-label="Biometric" style={S.biometricBtn}>
-                <FingerprintIcon size={44} />
-            </button>
-            
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                <div style={{ color: TOKEN.muted, fontSize: 12 }}>Enter PIN</div>
-                <div style={{ display: "flex", gap: 12 }}>
-                {[0, 1, 2, 3].map((i) => (
-                    <div key={i} style={{
-                        ...S.pinDot,
-                        borderColor: pinInput.length > i ? TOKEN.amber : TOKEN.border,
-                        background: pinInput.length > i ? `${TOKEN.amber}20` : TOKEN.borderSub,
-                    } as any}>
-                    {pinInput.length > i && <div style={{ width: 10, height: 10, borderRadius: "50%", background: TOKEN.amber }} />}
-                    </div>
-                ))}
-                </div>
-            </div>
-        </div>
+        <button onClick={handleBiometric} aria-label="Biometric" style={S.biometricBtn as any}>
+          <FingerprintIcon size={42} />
+        </button>
 
-        <div style={S.keypadGrid as any}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
-                <button key={n} className="key-btn" onClick={() => handlePinInput(n.toString())} style={S.keyBtn as any}>{n}</button>
-            ))}
-            <button onClick={clearPin} className="key-btn" style={{ ...S.keyBtn, color: TOKEN.danger } as any}>✕</button>
-            <button onClick={() => handlePinInput("0")} className="key-btn" style={S.keyBtn as any}>0</button>
-            <button onClick={handleBiometric} className="key-btn" style={{ ...S.keyBtn, display: "flex", alignItems: "center", justifyContent: "center" } as any}>
-                <FingerprintIcon size={24} />
-            </button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: TOKEN.textSub, fontSize: 14 }}>Touch to unlock</div>
+          <div style={{ color: TOKEN.muted, fontSize: 12, marginTop: 4 }}>or enter your PIN</div>
         </div>
 
         <div style={S.lastSession as any}>
-          <span style={{ color: TOKEN.muted, fontSize: 11 }}>
-            {expenses.length > 0
-              ? `Protecting ${expenses.length} records • ${fmt(sumExpenses(expenses))}`
-              : "No expenses yet — Secure & Offline"}
-          </span>
+          <div style={{ color: TOKEN.muted, fontSize: 11, textAlign: "center" }}>
+            Last session &bull; {expenses.length} expenses &bull; {fmt(sumExpenses(expenses))}
+          </div>
         </div>
       </div>
     );
@@ -242,19 +248,7 @@ export default function KharchaApp() {
           </div>
         </div>
 
-        {/* Today banner */}
-        <div style={{ ...S.card, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={S.label}>Today's total</div>
-            <div style={{ fontSize: 24, fontWeight: 500, color: TOKEN.amber, fontFamily: TOKEN.mono }}>
-              {fmt(todayTotal)}
-            </div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={S.label}>{todayExpenses.length} expenses</div>
-            <div style={S.label}>{new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</div>
-          </div>
-        </div>
+        <BudgetCard total={todayTotal} count={todayExpenses.length} date={dateLabel(todayKey())} />
 
         {/* Voice overlay */}
         {voiceOpen && (
@@ -289,105 +283,87 @@ export default function KharchaApp() {
           </div>
         )}
 
-        {/* Category grid */}
-        {!voiceOpen && (
-          <div style={S.catGrid}>
-            {CATEGORIES.map((cat) => {
-              const total = categoryTotal(expenses, cat.id);
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => { setSelCat(cat); go("amt"); }}
-                  style={{
-                    ...S.catBtn,
-                    borderColor: selCat.id === cat.id ? cat.color : "#2E2E3E",
-                    background:  selCat.id === cat.id ? cat.bg   : "#1A1A24",
-                  }}
-                >
-                  <div style={{ ...S.picon, background: cat.bg }}>
-                    <span style={{ fontSize: 18 }}>{cat.icon}</span>
-                  </div>
-                  <div style={{ color: "#E0DEDB", fontSize: 13, fontWeight: 500 }}>{cat.label}</div>
-                  {total > 0 && <div style={{ color: TOKEN.muted, fontSize: 10 }}>{fmt(total)} this month</div>}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <div style={{ color: "#666678", fontSize: 12, marginTop: 4 }}>Select category</div>
+        
+        <div style={S.catGrid}>
+          {categories.map((cat) => {
+            const total = categoryTotal(expenses, cat.id);
+            return (
+              <button
+                key={cat.id}
+                onClick={() => { setSelCat(cat); go("amt"); }}
+                style={{
+                  ...S.catBtn,
+                  borderColor: selCat.id === cat.id ? cat.color : "#2E2E3E",
+                }}
+              >
+                <div style={{ ...S.picon, background: cat.bg }}>
+                  <CatIcon id={cat.icon} size={18} color={cat.color} />
+                </div>
+                <div style={{ color: "#E0DEDB", fontSize: 14, fontWeight: 500 }}>{cat.label}</div>
+                {total > 0 && <div style={{ color: TOKEN.muted, fontSize: 10 }}>{fmt(total)} this month</div>}
+              </button>
+            );
+          })}
+        </div>
       </div>
     );
   }
 
   // ────────────────────────────────────────────────────────────────────────────
   function renderAmt() {
-    const remaining = Math.max(0, settings.dailyBudget - todayTotal);
-    const over      = remaining === 0;
-
     return (
       <div style={S.screenPad}>
-        {/* Header */}
         <div style={S.row}>
-          <button onClick={() => go("cat")} style={S.iconBtn} aria-label="Back">
-            <span style={{ color: "#888", fontSize: 16 }}>←</span>
-          </button>
+          <button onClick={() => go("cat")} style={S.iconBtn} aria-label="Back"><ArrowLeftIcon color={TOKEN.dim} /></button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ ...S.picon, background: selCat.bg }}>
-              <span style={{ fontSize: 16 }}>{selCat.icon}</span>
+            <div style={{ ...S.picon, background: selCat.bg, width: 28, height: 28 }}>
+              <CatIcon id={selCat.icon} size={14} color={selCat.color} />
             </div>
             <span style={{ color: TOKEN.text, fontSize: 15, fontWeight: 500 }}>{selCat.label}</span>
           </div>
-          <div style={{
-            fontSize: 11, padding: "4px 10px", borderRadius: 10,
-            background: over ? "#251813" : "#1A2212",
-            color:      over ? "#D85A30" : "#8BBF3A",
-          }}>
-            {over ? "Over budget" : `${fmt(remaining)} left`}
-          </div>
+          <div style={{ width: 34 }} />
         </div>
 
-        {/* Note input */}
         <div style={S.card}>
-          <div style={S.label}>Note (optional)</div>
+          <div style={{ color: TOKEN.muted, fontSize: 11, marginBottom: 6 }}>Note</div>
           <input
-            type="text"
+            autoFocus
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Lunch, Petrol, Hotel…"
+            placeholder="Lunch, Petrol, Shopping…"
             style={S.noteInput}
           />
         </div>
 
-        {/* Amount wheel */}
-        <div style={{ ...S.card, alignItems: "center", gap: 10 }}>
-          <div style={S.label}>Amount (₹)</div>
-          <button onClick={() => setAmtVal((v) => v + 50)} style={S.adjBtn} aria-label="+50">▲</button>
+        <div style={{ ...S.card, flex: 1, alignItems: "center", justifyContent: "center", gap: 14 }}>
+          <div style={{ color: TOKEN.muted, fontSize: 12 }}>Amount (₹)</div>
+          <button onClick={() => updateAmt(50)} style={S.adjBtn as any}>▲</button>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 52, fontWeight: 500, color: TOKEN.text, fontFamily: TOKEN.mono, letterSpacing: -2 }}>
+            <div style={{ fontSize: 52, fontWeight: 500, color: TOKEN.text, fontFamily: TOKEN.mono, letterSpacing: "-2px" }}>
               ₹{amtVal.toLocaleString("en-IN")}
             </div>
+            <div style={{ color: TOKEN.muted, fontSize: 11, marginTop: 4 }}>±₹50 steps</div>
           </div>
-          <button onClick={() => setAmtVal((v) => Math.max(1, v - 50))} style={S.adjBtn} aria-label="-50">▼</button>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-            {([-10, -1, 1, 10] as const).map((d) => (
-              <button key={d} onClick={() => setAmtVal((v) => Math.max(1, v + d))} style={S.fineBtn}>
-                {d > 0 ? "+" : ""}{d}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Presets */}
-        <div>
-          <div style={{ ...S.label, marginBottom: 6 }}>Quick presets</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {AMOUNT_PRESETS.map((p) => (
-              <button key={p} onClick={() => setAmtVal(p)} style={S.presetBtn}>{fmt(p)}</button>
-            ))}
+          <button onClick={() => updateAmt(-50)} style={S.adjBtn as any}>▼</button>
+          
+          <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
+            <button onClick={() => updateAmt(-10)} style={S.fineBtn}>−10</button>
+            <button onClick={() => updateAmt(-1)}  style={S.fineBtn}>−1</button>
+            <button onClick={() => updateAmt(1)}   style={S.fineBtn}>+1</button>
+            <button onClick={() => updateAmt(10)}  style={S.fineBtn}>+10</button>
           </div>
         </div>
 
-        <button onClick={addExpense} style={{ ...S.primaryBtn, marginTop: "auto" }}>
-          Save Expense
+        <button 
+          onClick={addExpense} 
+          style={{
+            ...S.primaryBtn,
+            background: isSaving ? TOKEN.success : TOKEN.amber,
+            color: isSaving ? "#E1F5EE" : TOKEN.amberText,
+          }}
+        >
+          {isSaving ? "✓ Saved!" : "Save Expense"}
         </button>
       </div>
     );
@@ -395,34 +371,30 @@ export default function KharchaApp() {
 
   // ────────────────────────────────────────────────────────────────────────────
   function renderDash() {
+    const periodLabel = period === "today" ? "today" : period === "week" ? "this week" : "this month";
+    const subText = `${periodExpenses.length} expense${periodExpenses.length !== 1 ? "s" : ""} ${periodLabel}`;
+
     return (
       <div style={S.screenPad}>
-        {/* Header */}
         <div style={S.row}>
           <div>
-            <div style={S.label}>
-              {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
-            </div>
+            <div style={{ color: TOKEN.muted, fontSize: 12 }}>{dateLabel(todayKey())}</div>
             <div style={S.heading}>Overview</div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => go("hist")} style={S.iconBtn} aria-label="History">📋</button>
-            <button onClick={() => go("set")}  style={S.iconBtn} aria-label="Settings">⚙️</button>
-          </div>
+          <button onClick={() => go("set")} style={S.iconBtn} aria-label="Settings"><BellIcon color={TOKEN.dim} /></button>
         </div>
 
-        {/* Period tabs */}
         <div style={S.tabRow}>
           {(["today", "week", "month"] as PeriodName[]).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
               style={{
-                flex: 1, padding: 7, borderRadius: 8, border: "none",
-                fontSize: 12, cursor: "pointer",
+                flex: 1, padding: 7, borderRadius: 8, border: "none", cursor: "pointer",
                 background: period === p ? TOKEN.amber : "transparent",
                 color:      period === p ? TOKEN.amberText : TOKEN.muted,
-                fontWeight: period === p ? 600 : 400,
+                fontWeight: period === p ? 500 : 400,
+                fontSize: 12,
               }}
             >
               {p.charAt(0).toUpperCase() + p.slice(1)}
@@ -430,54 +402,29 @@ export default function KharchaApp() {
           ))}
         </div>
 
-        {/* Budget card */}
-        <BudgetCard
-          total={periodTotal}
-          budget={settings.dailyBudget}
-          count={periodExpenses.length}
-          period={period}
-        />
+        <OverviewCard total={periodTotal} sub={subText} />
 
-        {/* Weekly chart */}
-        <div style={S.card}>
-          <div style={{ color: "#666678", fontSize: 12, marginBottom: 10 }}>This week</div>
-          <BarChart data={barData} />
+        <div style={{ ...S.card, gap: 12 }}>
+          <div style={{ color: "#666678", fontSize: 12 }}>By category</div>
+          {topCats.map((c) => (
+            <CategoryBar key={c.id} category={c} total={c.total} max={maxCatTotal} />
+          ))}
         </div>
 
-        {/* Category breakdown */}
-        {topCats.length > 0 && (
-          <div style={S.card}>
-            <div style={{ color: "#666678", fontSize: 12, marginBottom: 10 }}>By category</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {topCats.map((c) => (
-                <CategoryBar key={c.id} icon={c.icon} label={c.label} color={c.color} total={c.total} max={maxCatTotal} />
-              ))}
-            </div>
-          </div>
-        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+          <div style={{ color: "#666678", fontSize: 12 }}>Recent</div>
+          <button onClick={() => go("hist")} style={{ background: "none", border: "none", color: TOKEN.amber, fontSize: 12 }}>See all</button>
+        </div>
 
-        {/* Recent expenses */}
-        {expenses.slice(0, 3).length > 0 && (
-          <>
-            <div style={{ ...S.label, marginTop: 4 }}>Recent</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {expenses.slice(0, 3).map((e) => (
-                <ExpenseRow key={e.id} expense={e} onDelete={deleteExpense} />
-              ))}
-            </div>
-          </>
-        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {expenses.slice(0, 3).map((e) => (
+            <ExpenseRow key={e.id} expense={e} categories={categories} onDelete={deleteExpense} />
+          ))}
+        </div>
 
-        {expenses.length === 0 && (
-          <div style={{ textAlign: "center", padding: "24px 0", color: TOKEN.muted, fontSize: 13 }}>
-            No expenses yet. Tap below to add one!
-          </div>
-        )}
-
-        {/* FAB */}
-        <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px" }}>
+        <div style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}>
           <button onClick={() => go("cat")} style={S.fab}>
-            <span style={{ color: TOKEN.amberText, fontSize: 16 }}>＋</span>
+            <PlusIcon color={TOKEN.amberText} />
             <span style={{ color: TOKEN.amberText, fontSize: 14, fontWeight: 500 }}>Add expense</span>
           </button>
         </div>
@@ -510,8 +457,8 @@ export default function KharchaApp() {
 
         {/* Category filter chips */}
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
-          {["all", ...CATEGORIES.map((c) => c.id)].map((f) => {
-            const cat    = CATEGORIES.find((c) => c.id === f);
+          {["all", ...categories.map((c) => c.id)].map((f) => {
+            const cat    = categories.find((c) => c.id === f);
             const active = histCat === f;
             return (
               <button
@@ -544,7 +491,7 @@ export default function KharchaApp() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {groupedHistory[date].map((e) => (
-                  <ExpenseRow key={e.id} expense={e} onDelete={deleteExpense} />
+                  <ExpenseRow key={e.id} expense={e} categories={categories} onDelete={deleteExpense} />
                 ))}
               </div>
             </div>
@@ -588,8 +535,22 @@ export default function KharchaApp() {
         <SectionLabel>Security</SectionLabel>
         <TogRow label="Biometric unlock" sub="Fingerprint / Face ID" val={settings.biometric} onChange={(v) => updateSetting("biometric", v)} />
         <TogRow label="PIN fallback"     sub="4-digit backup PIN"    val={settings.pin}       onChange={(v) => updateSetting("pin", v)} />
+        <button onClick={() => go("change_pin")} style={S.menuItem}>
+          <div style={{ flex: 1, textAlign: "left" }}>
+            <div style={{ color: TOKEN.textSub, fontSize: 13 }}>Change PIN</div>
+            <div style={{ color: TOKEN.muted, fontSize: 11 }}>Update your 4-digit security code</div>
+          </div>
+          <span style={{ color: TOKEN.muted }}>›</span>
+        </button>
 
         <SectionLabel>Preferences</SectionLabel>
+        <button onClick={() => go("manage_cats")} style={S.menuItem}>
+          <div style={{ flex: 1, textAlign: "left" }}>
+            <div style={{ color: TOKEN.textSub, fontSize: 13 }}>Manage Categories</div>
+            <div style={{ color: TOKEN.muted, fontSize: 11 }}>Add, edit or remove expense types</div>
+          </div>
+          <span style={{ color: TOKEN.muted }}>›</span>
+        </button>
         <TogRow label="Voice logging"   sub="AI expense detection"    val={settings.voice}   onChange={(v) => updateSetting("voice", v)} />
         <TogRow label="Haptic feedback" sub="Vibrate on amount change" val={settings.haptic}  onChange={(v) => updateSetting("haptic", v)} />
         <TogRow label="Offline mode"    sub="Cache entries locally"    val={settings.offline} onChange={(v) => updateSetting("offline", v)} />
@@ -631,6 +592,85 @@ export default function KharchaApp() {
     );
   }
 
+  function renderChangePin() {
+    return (
+      <div style={S.screenBase}>
+        <div style={{ ...S.row, padding: "20px 20px 12px", borderBottom: `0.5px solid ${TOKEN.border}` }}>
+          <button onClick={() => go("set")} style={S.iconBtn} aria-label="Back">←</button>
+          <div style={S.heading}>Change PIN</div>
+          <div style={{ width: 34 }} />
+        </div>
+        <div style={{ padding: 40, textAlign: "center", display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ fontSize: 14, color: TOKEN.muted }}>Enter a new 4-digit PIN</div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 12 }}>
+            {pinInput.padEnd(4, "-").split("").map((c, i) => (
+              <div key={i} style={S.pinDot}>
+                <span style={{ color: c === "-" ? TOKEN.muted : TOKEN.amber, fontSize: 24, fontWeight: 600 }}>{c === "-" ? "•" : c}</span>
+              </div>
+            ))}
+          </div>
+          <div style={S.keypadGrid as any}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+              <button key={n} onClick={() => handlePinInput(n.toString())} style={S.keyBtn as any}>{n}</button>
+            ))}
+            <button onClick={clearPin} style={{ ...S.keyBtn, color: TOKEN.danger } as any}>✕</button>
+            <button onClick={() => handlePinInput("0")} style={S.keyBtn as any}>0</button>
+            <button onClick={() => {
+              if (pinInput.length === 4) {
+                updateSetting("pinCode", pinInput);
+                go("set");
+              }
+            }} style={{ ...S.keyBtn, color: TOKEN.success, fontSize: 16 } as any}>SAVE</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderManageCats() {
+    return (
+      <div style={S.screenBase}>
+        <div style={{ ...S.row, padding: "20px 20px 12px", borderBottom: `0.5px solid ${TOKEN.border}` }}>
+          <button onClick={() => go("set")} style={S.iconBtn} aria-label="Back">←</button>
+          <div style={S.heading}>Categories</div>
+          <div style={{ width: 34 }} />
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "10px 20px" }}>
+          {categories.map((cat, idx) => (
+            <div key={cat.id} style={{ ...S.togRow, padding: "12px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ ...S.picon, background: cat.bg }}>
+                  <CatIcon id={cat.icon} size={18} color={cat.color} />
+                </div>
+                <div style={{ color: TOKEN.textSub }}>{cat.label}</div>
+              </div>
+              <button onClick={() => {
+                setCategories(prev => prev.filter((_, i) => i !== idx));
+              }} style={{ background: "none", border: "none", color: TOKEN.danger, cursor: "pointer" }}>Delete</button>
+            </div>
+          ))}
+          <div style={{ marginTop: 20, padding: 14, background: "#16161F", borderRadius: 12, border: `1.5px dashed ${TOKEN.border}`, textAlign: "center", color: TOKEN.muted, fontSize: 13, cursor: "pointer" }}
+               onClick={() => {
+                 const name = window.prompt("Category Name?");
+                 const icon = window.prompt("Icon (Emoji)?") || "📦";
+                 if (name) {
+                   const newCat: Category = {
+                     id: name.toLowerCase().replace(/\s+/g, "_"),
+                     label: name,
+                     icon: icon,
+                     color: TOKEN.amber,
+                     bg: "#1A1A24"
+                   };
+                   setCategories(prev => [...prev, newCat]);
+                 }
+               }}>
+            + Add New Category
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── Root render ─────────────────────────────────────────────────────────────
   return (
     <div style={S.root}>
@@ -643,6 +683,8 @@ export default function KharchaApp() {
           {screen === "dash" && renderDash()}
           {screen === "hist" && renderHist()}
           {screen === "set"  && renderSet()}
+          {screen === "change_pin" && renderChangePin()}
+          {screen === "manage_cats" && renderManageCats()}
         </div>
         <HomeBar />
       </div>

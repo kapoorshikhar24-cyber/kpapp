@@ -1,4 +1,4 @@
-export type ScreenName = "lock" | "cat" | "amt" | "dash" | "hist" | "set";
+export type ScreenName = "lock" | "cat" | "amt" | "dash" | "hist" | "set" | "manage_cats" | "change_pin";
 export type PeriodName = "today" | "week" | "month";
 
 export interface Category {
@@ -20,10 +20,12 @@ export interface Expense {
 export interface Settings {
   biometric: boolean;
   pin: boolean;
+  pinCode: string; // 4-digit PIN
   voice: boolean;
   haptic: boolean;
   offline: boolean;
   dailyBudget: number;
   userName: string;
   userEmail: string;
+  customCategories?: Category[];
 }
