@@ -8,9 +8,46 @@ import { DAY_LABELS } from "./Constants";
 import { fmt, dateLabel } from "./Utils";
 
 // ─── Global Auth Styles (Keyframes) ──────────────────────────────────────────
-export function AuthStyles() {
+export function GlobalStyles() {
   return (
     <style dangerouslySetInnerHTML={{ __html: `
+      .theme-dark {
+        --token-bg: #060608;
+        --token-phone: #0C0C12;
+        --token-text: #F0EEE5;
+        --token-textSub: #D0CEC8;
+        --token-textFaint: #C8C6C0;
+        --token-muted: #44445A;
+        --token-dim: #55556A;
+        --token-border: #28283A;
+        --token-borderSub: #1A1A24;
+        --token-amber: #EF9F27;
+        --token-amberText: #412402;
+        --token-danger: #E24B4A;
+        --token-success: #1D9E75;
+        --token-surface: #16161F;
+        --token-surfaceElevated: #1A1A24;
+        --token-surfaceHighlight: #252530;
+      }
+      .theme-light {
+        --token-bg: #F5F5F7;
+        --token-phone: #FFFFFF;
+        --token-text: #1C1C1E;
+        --token-textSub: #3A3A3C;
+        --token-textFaint: #636366;
+        --token-muted: #AEAEB2;
+        --token-dim: #8E8E93;
+        --token-border: #E5E5EA;
+        --token-borderSub: #F2F2F7;
+        --token-amber: #EF9F27;
+        --token-amberText: #FFFFFF;
+        --token-danger: #FF3B30;
+        --token-success: #34C759;
+        --token-surface: #F2F2F7;
+        --token-surfaceElevated: #FFFFFF;
+        --token-surfaceHighlight: #E5E5EA;
+      }
+      
       @keyframes shake {
         0%, 100% { transform: translateX(0); }
         20%, 60% { transform: translateX(-6px); }
@@ -40,6 +77,25 @@ export function AuthStyles() {
         70% { box-shadow: 0 0 0 20px rgba(226, 75, 74, 0); }
         100% { box-shadow: 0 0 0 0 rgba(226, 75, 74, 0); }
       }
+      
+      /* Responsive overrides for actual mobile devices */
+      @media (max-width: 600px) {
+        .app-root {
+          padding: 0 !important;
+        }
+        .app-phone {
+          width: 100vw !important;
+          height: 100vh !important;
+          min-height: 100vh !important;
+          max-width: 100vw !important;
+          border-radius: 0 !important;
+          border: none !important;
+          box-shadow: none !important;
+        }
+        .status-bar-sim, .home-bar-sim {
+          display: none !important;
+        }
+      }
     `}} />
   );
 }
@@ -64,7 +120,7 @@ export function StatusBar() {
   }, []);
 
   return (
-    <div style={S.statusBar}>
+    <div style={S.statusBar} className="status-bar-sim">
       <span style={S.statusTime}>{time}</span>
       <div style={S.notch} />
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -78,7 +134,7 @@ export function StatusBar() {
 // ─── HomeBar ──────────────────────────────────────────────────────────────────
 export function HomeBar() {
   return (
-    <div style={S.homeBar}>
+    <div style={S.homeBar} className="home-bar-sim">
       <div style={S.homeIndicator} />
     </div>
   );
@@ -262,7 +318,7 @@ export function Toggle({ on, onToggle }: ToggleProps) {
     <button
       onClick={onToggle}
       aria-pressed={on}
-      style={{ ...S.toggle, background: on ? TOKEN.amber : "#2E2E3E" }}
+      style={{ ...S.toggle, background: on ? TOKEN.amber : TOKEN.borderSub }}
     >
       <div style={{ ...S.knob, left: on ? 18 : 2 }} />
     </button>
@@ -316,12 +372,12 @@ export function BarChart({ data }: BarChartProps) {
               style={{
                 flex: 1,
                 height: h,
-                background: isToday ? TOKEN.amber : v > 0 ? "#252538" : "#1A1A24",
+                background: isToday ? TOKEN.amber : v > 0 ? TOKEN.surfaceHighlight : TOKEN.surfaceElevated,
                 borderRadius: "3px 3px 0 0",
                 alignSelf: "flex-end",
                 cursor: "pointer",
                 transition: "height 0.4s",
-                border: isToday ? "none" : `0.5px solid #2E2E3E`,
+                border: isToday ? "none" : `0.5px solid ${TOKEN.borderSub}`,
               }}
             />
           );
@@ -434,11 +490,11 @@ export function CategoryBar({ category, total, max }: { category: Category; tota
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <CatIcon id={category.icon} size={14} color={category.color} />
-          <span style={{ color: "#C8C6C0", fontSize: 13 }}>{category.label}</span>
+          <span style={{ color: TOKEN.textFaint, fontSize: 13 }}>{category.label}</span>
         </div>
-        <span style={{ color: "#C8C6C0", fontSize: 13, fontFamily: TOKEN.mono }}>{fmt(total)}</span>
+        <span style={{ color: TOKEN.textFaint, fontSize: 13, fontFamily: TOKEN.mono }}>{fmt(total)}</span>
       </div>
-      <div style={{ height: 5, background: "#22222C", borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ height: 5, background: TOKEN.surfaceHighlight, borderRadius: 3, overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: category.color, borderRadius: 3, transition: "width 0.4s ease-out" }} />
       </div>
     </div>
@@ -457,7 +513,7 @@ export function BudgetCard({ total, count, date }: { total: number; count: numbe
   return (
     <div style={S.todayBanner}>
       <div>
-        <div style={{ color: "#44445A", fontSize: 11 }}>Today's total</div>
+        <div style={{ color: TOKEN.muted, fontSize: 11 }}>Today's total</div>
         <div style={{ color: TOKEN.amber, fontSize: 24, fontWeight: 500, fontFamily: TOKEN.mono }}>{fmt(total)}</div>
       </div>
       <div style={{ textAlign: "right" }}>
@@ -471,9 +527,9 @@ export function BudgetCard({ total, count, date }: { total: number; count: numbe
 export function OverviewCard({ total, sub }: { total: number; sub: string }) {
   return (
     <div style={{ ...S.card, padding: 18 }}>
-      <div style={{ color: "#44445A", fontSize: 11, marginBottom: 4 }}>Total spent</div>
+      <div style={{ color: TOKEN.muted, fontSize: 11, marginBottom: 4 }}>Total spent</div>
       <div style={{ fontSize: 40, fontWeight: 500, color: TOKEN.text, fontFamily: TOKEN.mono, letterSpacing: -1 }}>{fmt(total)}</div>
-      <div style={{ color: "#44445A", fontSize: 12, marginTop: 4 }}>{sub}</div>
+      <div style={{ color: TOKEN.muted, fontSize: 12, marginTop: 4 }}>{sub}</div>
     </div>
   );
 }

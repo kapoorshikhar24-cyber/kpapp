@@ -66,7 +66,7 @@ import {
   SectionLabel, TogRow,
   BarChart, ExpenseRow, CategoryBar, BudgetCard,
   CatIcon, ArrowLeftIcon, BellIcon, PlusIcon, OverviewCard,
-  AuthStyles, BiometricOverlay,
+  GlobalStyles, BiometricOverlay,
 } from "./SubComponents";
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -99,6 +99,9 @@ export default function KharchaApp() {
   // ── Voice ────────────────────────────────────────────────────────────────────
   const [voiceOpen, setVoiceOpen] = useState<boolean>(false);
   const [voiceStep, setVoiceStep] = useState<0 | 1>(0);
+  const [transcript, setTranscript] = useState<string>("");
+  const [parsedExpense, setParsedExpense] = useState<Partial<Expense> | null>(null);
+  const [isListening, setIsListening] = useState(false);
 
   // ── Auth state ──────────────────────────────────────────────────────────────
   const [pinInput, setPinInput] = useState<string>("");
@@ -345,19 +348,102 @@ export default function KharchaApp() {
   const groupedHistory = groupByDate(filteredExpenses);
   const historyDates = Object.keys(groupedHistory).sort().reverse();
 
-  // ── Voice simulation ─────────────────────────────────────────────────────────
+  // ── Voice Logic ─────────────────────────────────────────────────────────────
+  function parseVoiceInput(text: string) {
+    const lower = text.toLowerCase();
+    let amount = 0;
+    let categoryMatch = categories[0].id;
+
+    // Extract numbers
+    const numMatch = lower.match(/\b\d+(\.\d{1,2})?\b/);
+    if (numMatch) {
+      amount = parseFloat(numMatch[0]);
+    }
+
+    // Extract Category
+    for (const cat of categories) {
+      if (lower.includes(cat.label.toLowerCase()) || lower.includes(cat.id)) {
+        categoryMatch = cat.id;
+        break;
+      }
+    }
+
+    let note = text.trim();
+    if (note.length > 0) {
+      note = note.charAt(0).toUpperCase() + note.slice(1);
+    }
+
+    setParsedExpense({
+      amount: amount || 150,
+      category: categoryMatch,
+      note: note
+    });
+
+    setVoiceStep(1);
+    if (settings.haptic) triggerHaptic("success");
+  }
+
   function startVoice() {
+    const SpeechRecognitionAPI = typeof window !== 'undefined' ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
+    
+    if (!SpeechRecognitionAPI) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+
     setVoiceStep(0);
     setVoiceOpen(true);
-    setTimeout(() => setVoiceStep(1), 2000);
+    setTranscript("Listening...");
+    setParsedExpense(null);
+
+    try {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.lang = 'en-US';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        if (settings.haptic) triggerHaptic("light");
+      };
+
+      recognition.onresult = (event: any) => {
+        const current = event.resultIndex;
+        const result = event.results[current][0].transcript;
+        setTranscript(result);
+        
+        if (event.results[0].isFinal) {
+          setIsListening(false);
+          parseVoiceInput(result);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech error:", event.error);
+        setTranscript(`Error: ${event.error}`);
+        setIsListening(false);
+        setTimeout(() => setVoiceOpen(false), 2000);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error(err);
+      alert("Could not start microphone. Check permissions.");
+      setVoiceOpen(false);
+    }
   }
 
   function confirmVoice() {
+    if (!parsedExpense) return;
     const e: Expense = {
       id: generateId(),
-      category: "food",
-      amount: 200,
-      note: "Sharma dhaba",
+      category: parsedExpense.category || "food",
+      amount: parsedExpense.amount || 0,
+      note: parsedExpense.note || "",
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [e, ...prev]);
@@ -387,8 +473,6 @@ export default function KharchaApp() {
         ...(shake ? { animation: "shake 0.4s ease-in-out" } : {}),
         ...(loginSuccess ? S.pulseSuccess : {}),
       } as any}>
-        <AuthStyles />
-
         {bioStatus && <BiometricOverlay status={bioStatus} onCancel={() => setBioStatus(null)} />}
 
         {/* Title Section */}
@@ -430,7 +514,7 @@ export default function KharchaApp() {
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
                 <button key={n} onClick={() => handlePinInput(n.toString())} style={{
                   ...S.keyBtn,
-                  background: "#16161F",
+                  background: TOKEN.surface,
                   border: `1px solid ${TOKEN.border}`,
                   fontSize: 24,
                   transition: "transform 0.1s",
@@ -441,7 +525,7 @@ export default function KharchaApp() {
               {/* Biometric Trigger */}
               <button onClick={handleBiometric} aria-label="Biometric unlock" style={{
                 ...S.keyBtn,
-                background: settings.biometric ? "#171720" : "#0D0D12",
+                background: settings.biometric ? TOKEN.surface : TOKEN.bg,
                 border: settings.biometric ? `1.5px solid ${TOKEN.amber}` : `1px solid ${TOKEN.border}`,
                 color: settings.biometric ? TOKEN.amber : TOKEN.muted,
                 transition: "transform 0.1s",
@@ -522,37 +606,48 @@ export default function KharchaApp() {
         {/* Voice overlay */}
         {voiceOpen && (
           <div style={S.voiceBox}>
-            <div style={S.label}>Say something like</div>
-            <div style={{ fontSize: 13, color: "#D0CEC8", fontStyle: "italic", textAlign: "center" }}>
-              "Spent 200 on food at Sharma dhaba"
-            </div>
+            <div style={S.label}>{voiceStep === 0 ? "Listening to your expense" : "Parsed Expense"}</div>
+            
+            {voiceStep === 0 && (
+              <div style={{ fontSize: 16, color: TOKEN.text, textAlign: "center", fontStyle: "italic", minHeight: 40, marginTop: 10 }}>
+                "{transcript}"
+              </div>
+            )}
+
             <div
-              style={{ ...S.voiceRing, background: voiceStep === 0 ? "#171720" : "#251E13" }}
-              onClick={() => voiceStep === 0 && setVoiceStep(1)}
+              style={{ 
+                ...S.voiceRing, 
+                background: isListening ? TOKEN.surfaceElevated : TOKEN.surface,
+                animation: isListening ? "pulseSuccess 1.5s infinite" : "none"
+              }}
             >
               <span style={{ fontSize: 28 }}>🎙️</span>
             </div>
+            
             <div style={{ fontSize: 12, color: TOKEN.amber }}>
-              {voiceStep === 0 ? "Listening…" : "Done — tap Confirm"}
+              {isListening ? "Speak now..." : voiceStep === 0 ? "Processing..." : "Done — tap Confirm"}
             </div>
-            {voiceStep === 1 && (
+
+            {voiceStep === 1 && parsedExpense && (
               <>
                 <div style={S.voiceResult}>
                   <div style={S.label}>Detected</div>
-                  <div style={{ color: TOKEN.amber, fontSize: 15, fontWeight: 500 }}>₹200 — Food</div>
-                  <div style={{ color: "#C0BEB8", fontSize: 12, marginTop: 2 }}>"Sharma dhaba"</div>
+                  <div style={{ color: TOKEN.amber, fontSize: 15, fontWeight: 500 }}>
+                    ₹{parsedExpense.amount} — {categories.find(c => c.id === parsedExpense.category)?.label || parsedExpense.category}
+                  </div>
+                  <div style={{ color: TOKEN.textFaint, fontSize: 12, marginTop: 2 }}>"{parsedExpense.note}"</div>
                 </div>
                 <button onClick={confirmVoice} style={S.confirmBtn}>Confirm &amp; Save</button>
               </>
             )}
-            <button onClick={() => setVoiceOpen(false)}
+            <button onClick={() => { setVoiceOpen(false); setIsListening(false); }}
               style={{ background: "none", border: "none", color: TOKEN.muted, cursor: "pointer", fontSize: 12 }}>
               Cancel
             </button>
           </div>
         )}
 
-        <div style={{ color: "#666678", fontSize: 12, marginTop: 4 }}>Select category</div>
+        <div style={{ color: TOKEN.muted, fontSize: 12, marginTop: 4 }}>Select category</div>
 
         <div style={S.catGrid}>
           {categories.map((cat) => {
@@ -567,7 +662,7 @@ export default function KharchaApp() {
                 }}
                 style={{
                   ...S.catBtn,
-                  borderColor: selCat.id === cat.id ? cat.color : "#2E2E3E",
+                  borderColor: selCat.id === cat.id ? cat.color : TOKEN.borderSub,
                 }}
               >
                 <div style={{ ...S.picon, background: cat.bg }}>
@@ -691,7 +786,7 @@ export default function KharchaApp() {
           style={{
             ...S.primaryBtn,
             background: isSaving ? TOKEN.success : TOKEN.amber,
-            color: isSaving ? "#E1F5EE" : TOKEN.amberText,
+            color: isSaving ? TOKEN.success : TOKEN.amberText,
             marginTop: 10
           }}
         >
@@ -740,7 +835,7 @@ export default function KharchaApp() {
         {settings.biometric && !localStorage.getItem(`bio_cred_${settings.userEmail || "default"}`) && (
           <div style={{
             padding: 16,
-            background: "#251E13",
+            background: "${TOKEN.surfaceElevated}",
             borderRadius: 16,
             border: `1px solid ${TOKEN.amber}40`,
             display: "flex",
@@ -768,14 +863,14 @@ export default function KharchaApp() {
         )}
 
         <div style={{ ...S.card, gap: 12 }}>
-          <div style={{ color: "#666678", fontSize: 12 }}>By category</div>
+          <div style={{ color: TOKEN.muted, fontSize: 12 }}>By category</div>
           {topCats.map((c) => (
             <CategoryBar key={c.id} category={c} total={c.total} max={maxCatTotal} />
           ))}
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-          <div style={{ color: "#666678", fontSize: 12 }}>Recent</div>
+          <div style={{ color: TOKEN.muted, fontSize: 12 }}>Recent</div>
           <button onClick={() => go("hist")} style={{ background: "none", border: "none", color: TOKEN.amber, fontSize: 12 }}>See all</button>
         </div>
 
@@ -830,8 +925,8 @@ export default function KharchaApp() {
                 style={{
                   whiteSpace: "nowrap", padding: "5px 12px", borderRadius: 20,
                   fontSize: 11, cursor: "pointer",
-                  border: `0.5px solid ${active ? TOKEN.amber : "#2E2E3E"}`,
-                  background: active ? "#251E13" : "transparent",
+                  border: `0.5px solid ${active ? TOKEN.amber : TOKEN.borderSub}`,
+                  background: active ? "${TOKEN.surfaceElevated}" : "transparent",
                   color: active ? TOKEN.amber : "#666",
                 }}
               >
@@ -879,7 +974,7 @@ export default function KharchaApp() {
 
         {/* Profile */}
         <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: `0.5px solid ${TOKEN.borderSub}` }}>
-          <div style={{ width: 46, height: 46, borderRadius: "50%", background: "#251E13", border: `1.5px solid ${TOKEN.amber}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 46, height: 46, borderRadius: "50%", background: "${TOKEN.surfaceElevated}", border: `1.5px solid ${TOKEN.amber}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ color: TOKEN.amber, fontSize: 16, fontWeight: 500 }}>
               {(settings.userName || "U").slice(0, 2).toUpperCase()}
             </span>
@@ -890,7 +985,7 @@ export default function KharchaApp() {
             <input value={settings.userEmail} onChange={(e) => updateSetting("userEmail", e.target.value)}
               style={{ ...S.noteInput, fontSize: 12, color: TOKEN.muted, marginTop: 2 }} placeholder="Email" type="email" />
           </div>
-          <span style={{ fontSize: 10, padding: "3px 9px", borderRadius: 10, background: "#1D9E7520", color: TOKEN.success, border: `0.5px solid ${TOKEN.success}60` }}>
+          <span style={{ fontSize: 10, padding: "3px 9px", borderRadius: 10, background: `${TOKEN.success}20`, color: TOKEN.success, border: `0.5px solid ${TOKEN.success}60` }}>
             {expenses.length} saved
           </span>
         </div>
@@ -904,7 +999,7 @@ export default function KharchaApp() {
             style={{ 
               width: "100%",
               padding: "14px",
-              background: "#16161F",
+              background: TOKEN.surface,
               border: `1px solid ${settings.biometric ? TOKEN.amber : TOKEN.border}`,
               borderRadius: 12,
               display: "flex",
@@ -915,7 +1010,7 @@ export default function KharchaApp() {
             }}
           >
             <div style={{ 
-              width: 32, height: 32, borderRadius: 8, background: settings.biometric ? "#251E13" : "#1A1A24",
+              width: 32, height: 32, borderRadius: 8, background: settings.biometric ? "${TOKEN.surfaceElevated}" : TOKEN.surfaceElevated,
               display: "flex", alignItems: "center", justifyContent: "center"
             }}>
               <FingerprintIcon size={20} color={settings.biometric ? TOKEN.amber : TOKEN.muted} />
@@ -942,6 +1037,76 @@ export default function KharchaApp() {
           </div>
           <span style={{ color: TOKEN.muted }}>›</span>
         </button>
+
+        <SectionLabel>Appearance</SectionLabel>
+        <TogRow 
+          label="Light Theme" 
+          sub="Use a bright, high-contrast palette" 
+          val={settings.theme === "light"} 
+          onChange={(v) => updateSetting("theme", v ? "light" : "dark")} 
+        />
+
+        {/* Accent Color Picker */}
+        <div style={{ padding: "12px 20px", borderBottom: `0.5px solid ${TOKEN.borderSub}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div>
+              <div style={{ color: TOKEN.textSub, fontSize: 13, fontWeight: 500 }}>Accent Color</div>
+              <div style={{ color: TOKEN.muted, fontSize: 11 }}>Button & highlight color</div>
+            </div>
+            <div style={{
+              width: 28, height: 28, borderRadius: "50%",
+              background: settings.accentColor || "#EF9F27",
+              border: `2px solid ${TOKEN.border}`,
+              boxShadow: `0 0 8px ${settings.accentColor || "#EF9F27"}80`
+            }} />
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {[
+              { color: "#EF9F27", label: "Amber" },
+              { color: "#378ADD", label: "Blue" },
+              { color: "#1D9E75", label: "Emerald" },
+              { color: "#7F77DD", label: "Purple" },
+              { color: "#E24B4A", label: "Red" },
+              { color: "#D85A30", label: "Coral" },
+              { color: "#639922", label: "Lime" },
+              { color: "#F06292", label: "Pink" },
+            ].map(({ color, label }) => {
+              const isActive = (settings.accentColor || "#EF9F27") === color;
+              return (
+                <button
+                  key={color}
+                  title={label}
+                  onClick={() => updateSetting("accentColor", color)}
+                  style={{
+                    width: 36, height: 36, borderRadius: "50%",
+                    background: color,
+                    border: isActive ? `3px solid ${TOKEN.text}` : "3px solid transparent",
+                    cursor: "pointer",
+                    boxShadow: isActive ? `0 0 10px ${color}` : "none",
+                    transition: "all 0.2s",
+                    outline: "none",
+                  }}
+                />
+              );
+            })}
+          </div>
+          {/* Custom hex input */}
+          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ color: TOKEN.muted, fontSize: 11 }}>Custom:</div>
+            <input
+              type="color"
+              value={settings.accentColor || "#EF9F27"}
+              onChange={(e) => updateSetting("accentColor", e.target.value)}
+              style={{
+                width: 36, height: 28, padding: 0, border: `1px solid ${TOKEN.border}`,
+                borderRadius: 6, background: "transparent", cursor: "pointer",
+              }}
+            />
+            <div style={{ color: TOKEN.textFaint, fontSize: 11, fontFamily: TOKEN.mono }}>
+              {settings.accentColor || "#EF9F27"}
+            </div>
+          </div>
+        </div>
 
         <SectionLabel>Preferences</SectionLabel>
         <button onClick={() => go("manage_cats")} style={S.menuItem}>
@@ -1091,7 +1256,7 @@ export default function KharchaApp() {
               }} style={{ background: "none", border: "none", color: TOKEN.danger, cursor: "pointer" }}>Delete</button>
             </div>
           ))}
-          <div style={{ marginTop: 20, padding: 14, background: "#16161F", borderRadius: 12, border: `1.5px dashed ${TOKEN.border}`, textAlign: "center", color: TOKEN.muted, fontSize: 13, cursor: "pointer" }}
+          <div style={{ marginTop: 20, padding: 14, background: TOKEN.surface, borderRadius: 12, border: `1.5px dashed ${TOKEN.border}`, textAlign: "center", color: TOKEN.muted, fontSize: 13, cursor: "pointer" }}
             onClick={() => {
               const name = window.prompt("Category Name?");
               const icon = window.prompt("Icon (Emoji)?") || "📦";
@@ -1101,7 +1266,7 @@ export default function KharchaApp() {
                   label: name,
                   icon: icon,
                   color: TOKEN.amber,
-                  bg: "#1A1A24"
+                  bg: TOKEN.surfaceElevated
                 };
                 setCategories(prev => [...prev, newCat]);
               }
@@ -1115,8 +1280,18 @@ export default function KharchaApp() {
 
   // ─── Root render ─────────────────────────────────────────────────────────────
   return (
-    <div style={S.root}>
-      <div style={S.phone}>
+    <div
+      style={{
+        ...S.root,
+        ...(settings.accentColor ? {
+          ["--token-amber" as any]: settings.accentColor,
+          ["--token-amberText" as any]: settings.theme === "light" ? "#ffffff" : "#1a0a00",
+        } : {})
+      }}
+      className={`app-root theme-${settings.theme || "dark"}`}
+    >
+      <GlobalStyles />
+      <div style={S.phone} className="app-phone">
         <StatusBar />
         <div style={S.body}>
           {screen === "lock" && renderLock()}

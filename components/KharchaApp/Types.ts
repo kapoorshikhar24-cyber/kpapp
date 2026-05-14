@@ -18,6 +18,8 @@ export interface Expense {
 }
 
 export interface Settings {
+  theme?: "dark" | "light";
+  accentColor?: string;
   biometric: boolean;
   pin: boolean;
   pinCode: string; // 4-digit PIN
