@@ -12,8 +12,8 @@ import { Expense, Category, Settings } from "./Types";
 import { S, TOKEN } from "./Styles";
 import { 
   fmt, getTrendData, getCategoryBreakdown, getHeatmapData, 
-  generateInsights, sumExpenses, sumIncome, triggerHaptic,
-  calculateHealthScore, getMerchantData, getCalendarData 
+  calculateHealthScore, generateInsights, getMerchantData,
+  getDailyStats, getWeeklyStats, getForecast, sumIncome, sumExpenses, triggerHaptic, getCalendarData 
 } from "./Utils";
 import { ArrowLeftIcon } from "./SubComponents";
 
@@ -44,8 +44,14 @@ const AnimatedCounter = ({ value, prefix = "" }: { value: number; prefix?: strin
 };
 
 export default function ReportsScreen({ expenses, categories, settings, onBack }: ReportsScreenProps) {
-  const [activeView, setActiveView] = useState<"overview" | "calendar" | "merchants">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "calendar" | "places" | "intelligence">("overview");
   const [trendDays, setTrendDays] = useState(30);
+
+  const daily = getDailyStats(expenses);
+  const weekly = getWeeklyStats(expenses);
+  const forecast = getForecast(expenses);
+  const totalIncome = sumIncome(expenses);
+  const totalSpent = sumExpenses(expenses);
   const isLight = settings.theme === "light";
   
   const trendData = useMemo(() => getTrendData(expenses, trendDays), [expenses, trendDays]);
@@ -55,16 +61,6 @@ export default function ReportsScreen({ expenses, categories, settings, onBack }
   const healthScore = useMemo(() => calculateHealthScore(expenses, settings.monthlyBudget || 50000), [expenses, settings.monthlyBudget]);
   const merchantData = useMemo(() => getMerchantData(expenses), [expenses]);
   const calendarData = useMemo(() => getCalendarData(expenses), [expenses]);
-
-  const totalSpent = useMemo(() => sumExpenses(expenses.filter(e => {
-    const d = new Date(e.createdAt);
-    return d.getMonth() === new Date().getMonth();
-  })), [expenses]);
-  
-  const totalIncome = useMemo(() => sumIncome(expenses.filter(e => {
-    const d = new Date(e.createdAt);
-    return d.getMonth() === new Date().getMonth();
-  })), [expenses]);
 
   const exportPDF = async () => {
     triggerHaptic("success");
@@ -111,8 +107,8 @@ export default function ReportsScreen({ expenses, categories, settings, onBack }
           <div style={S.metricValue}><AnimatedCounter value={totalSpent} prefix="₹" /></div>
         </div>
         <div style={S.reportCard}>
-          <div style={S.metricLabel}>Income</div>
-          <div style={{ ...S.metricValue, color: TOKEN.success }}><AnimatedCounter value={totalIncome} prefix="₹" /></div>
+          <div style={S.metricLabel}>Today</div>
+          <div style={{ ...S.metricValue, color: TOKEN.amber }}><AnimatedCounter value={daily?.total || 0} prefix="₹" /></div>
         </div>
       </div>
 
@@ -150,90 +146,6 @@ export default function ReportsScreen({ expenses, categories, settings, onBack }
           </ResponsiveContainer>
         </div>
       </div>
-
-      {/* Category Mix with Percentages and Totals */}
-      <div style={S.reportCard}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Category Mix</div>
-        <div style={{ height: 200 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={catData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>
-                {catData.map((e, i) => <Cell key={i} fill={e.color} />)}
-              </Pie>
-              <Tooltip formatter={(val: any) => fmt(Number(val || 0))} contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-          {catData.map(c => {
-            const perc = ((c.value / totalSpent) * 100).toFixed(1);
-            return (
-              <div key={c.name} style={{ ...S.row, fontSize: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color }} />
-                  <span style={{ color: TOKEN.textSub, fontWeight: 500 }}>{c.name}</span>
-                </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={{ color: TOKEN.muted, fontSize: 11 }}>{perc}%</span>
-                  <span style={{ color: TOKEN.text, fontWeight: 600, fontFamily: TOKEN.mono }}>{fmt(c.value)}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Spending Activity Heatmap for Light Mode */}
-      <div style={S.reportCard}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Spending Activity</div>
-        <div style={{ fontSize: 10, color: TOKEN.muted, marginBottom: 12 }}>Frequency of transactions</div>
-        <div style={S.heatmapGrid}>
-          {heatmapData.slice(-28).map((d, i) => {
-            let opacity = 0.05;
-            if (d.intensity === 1) opacity = 0.2;
-            if (d.intensity === 2) opacity = 0.4;
-            if (d.intensity === 3) opacity = 0.7;
-            if (d.intensity === 4) opacity = 1.0;
-            
-            return (
-              <div 
-                key={i} 
-                title={`${new Date(d.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}: ${fmt(d.count)}`}
-                onClick={() => { if (settings.haptic) triggerHaptic("light"); }}
-                style={{ 
-                  ...S.heatmapCell, 
-                  background: d.intensity === 0 
-                    ? (isLight ? "rgba(0,0,0,0.03)" : TOKEN.surfaceHighlight)
-                    : TOKEN.amber,
-                  opacity: d.intensity === 0 ? 1 : opacity,
-                  border: isLight && d.intensity === 0 ? "1px solid rgba(0,0,0,0.02)" : "none",
-                  cursor: "pointer"
-                }} 
-              />
-            );
-          })}
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginTop: 12 }}>
-          <div style={{ fontSize: 9, color: TOKEN.muted }}>Less</div>
-          {[0, 0.2, 0.4, 0.7, 1].map((v, i) => (
-            <div key={i} style={{ 
-              width: 10, height: 10, borderRadius: 2, 
-              background: v === 0 ? (isLight ? "rgba(0,0,0,0.03)" : TOKEN.surfaceHighlight) : TOKEN.amber,
-              opacity: v || 1
-            }} />
-          ))}
-          <div style={{ fontSize: 9, color: TOKEN.muted }}>More</div>
-        </div>
-      </div>
-
-      <div style={S.reportCard}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Observations</div>
-        {insights.map((ins, i) => (
-          <div key={i} style={S.insightItem}>
-            <div style={{ fontSize: 12, color: TOKEN.textSub, lineHeight: 1.5 }}>{ins}</div>
-          </div>
-        ))}
-      </div>
     </>
   );
 
@@ -267,15 +179,11 @@ export default function ReportsScreen({ expenses, categories, settings, onBack }
             );
           })}
         </div>
-        <div style={{ marginTop: 20, padding: 12, background: isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", borderRadius: 12 }}>
-          <div style={{ fontSize: 12, color: TOKEN.muted }}>Daily Average</div>
-          <div style={{ fontSize: 20, fontWeight: 600, color: TOKEN.text }}>{fmt(totalSpent / daysInMonth)}</div>
-        </div>
       </div>
     );
   };
 
-  const renderMerchants = () => (
+  const renderPlaces = () => (
     <div style={S.reportCard}>
       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Top Spending Places</div>
       {merchantData.map((m, i) => (
@@ -296,6 +204,95 @@ export default function ReportsScreen({ expenses, categories, settings, onBack }
     </div>
   );
 
+  const renderIntelligence = () => {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* Financial Forecast */}
+        <div style={S.reportCard}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Month Forecast</div>
+          <div style={{ fontSize: 10, color: TOKEN.muted, marginBottom: 12 }}>Predicted spending based on current habits</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: TOKEN.amber, fontFamily: TOKEN.mono }}>{fmt(forecast.predicted)}</div>
+          <div style={{ height: 6, background: TOKEN.surfaceHighlight, borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${Math.min(100, (forecast.spentSoFar / (forecast.predicted || 1)) * 100)}%`, background: TOKEN.amber }} />
+          </div>
+          <div style={{ ...S.row, marginTop: 8 }}>
+            <div style={{ fontSize: 10, color: TOKEN.muted }}>Progress: {forecast.progress.toFixed(0)}% of month</div>
+            <div style={{ fontSize: 10, color: TOKEN.textSub }}>Avg: {fmt(forecast.avgPerDay)}/day</div>
+          </div>
+        </div>
+
+        {/* Weekly Comparison */}
+        <div style={S.reportCard}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Weekly Performance</div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: TOKEN.muted }}>This Week</div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>{fmt(weekly.thisTotal)}</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: TOKEN.muted }}>Last Week</div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>{fmt(weekly.lastTotal)}</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: weekly.diff > 0 ? TOKEN.danger : TOKEN.success }}>
+            {weekly.diff > 0 ? "▲" : "▼"} {Math.abs(weekly.diff).toFixed(1)}% {weekly.diff > 0 ? "more" : "less"} than last week
+          </div>
+        </div>
+
+        {/* Weekend Habits */}
+        <div style={S.reportCard}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Spending Balance</div>
+          <div style={{ display: "flex", height: 20, borderRadius: 10, overflow: "hidden", background: TOKEN.surfaceHighlight }}>
+            <div style={{ width: `${(weekly.weekdayTotal / (weekly.thisTotal || 1)) * 100}%`, background: TOKEN.amber }} />
+            <div style={{ width: `${(weekly.weekendTotal / (weekly.thisTotal || 1)) * 100}%`, background: "#378ADD" }} />
+          </div>
+          <div style={{ ...S.row, marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: TOKEN.amber }} />
+              <span style={{ fontSize: 10, color: TOKEN.muted }}>Weekdays ({fmt(weekly.weekdayTotal)})</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: "#378ADD" }} />
+              <span style={{ fontSize: 10, color: TOKEN.muted }}>Weekends ({fmt(weekly.weekendTotal)})</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Cash Flow */}
+        <div style={S.reportCard}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Cash Flow Summary</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={S.row}>
+              <span style={{ fontSize: 12, color: TOKEN.textSub }}>Total Income</span>
+              <span style={{ fontSize: 12, color: TOKEN.success, fontWeight: 600 }}>+{fmt(totalIncome)}</span>
+            </div>
+            <div style={S.row}>
+              <span style={{ fontSize: 12, color: TOKEN.textSub }}>Total Expenses</span>
+              <span style={{ fontSize: 12, color: TOKEN.danger, fontWeight: 600 }}>-{fmt(totalSpent)}</span>
+            </div>
+            <div style={{ height: 1, background: TOKEN.border, margin: "4px 0" }} />
+            <div style={S.row}>
+              <span style={{ fontSize: 12, fontWeight: 700 }}>Net Savings</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: (totalIncome - totalSpent) >= 0 ? TOKEN.success : TOKEN.danger }}>
+                {fmt(totalIncome - totalSpent)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Deep Insights */}
+        <div style={S.reportCard}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Deep Insights</div>
+          {insights.map((ins, i) => (
+            <div key={i} style={S.insightItem}>
+              <div style={{ fontSize: 12, color: TOKEN.textSub, lineHeight: 1.5 }}>{ins}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={S.screenBase}>
       <div style={{ ...S.row, padding: "20px 20px 10px", background: TOKEN.bg, position: "sticky", top: 0, zIndex: 10 }}>
@@ -307,32 +304,28 @@ export default function ReportsScreen({ expenses, categories, settings, onBack }
         </div>
       </div>
 
-      <div style={{ padding: "0 20px 10px", display: "flex", gap: 8, overflowX: "auto", msOverflowStyle: "none", scrollbarWidth: "none" }}>
-        {[
-          { id: "overview", label: "Overview", icon: "📈" },
-          { id: "calendar", label: "Calendar", icon: "📅" },
-          { id: "merchants", label: "Places", icon: "📍" },
-        ].map(v => (
+      <div style={{ display: "flex", gap: 8, padding: "0 20px", marginBottom: 20 }}>
+        {["overview", "calendar", "places", "intelligence"].map(t => (
           <button 
-            key={v.id} 
-            onClick={() => { setActiveView(v.id as any); triggerHaptic("light"); }}
-            style={{
-              padding: "8px 16px", borderRadius: 12, border: `1px solid ${activeView === v.id ? TOKEN.amber : TOKEN.border}`,
-              background: activeView === v.id ? "rgba(239, 159, 39, 0.1)" : TOKEN.surface,
-              color: activeView === v.id ? TOKEN.amber : TOKEN.muted,
-              fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap"
+            key={t} 
+            onClick={() => { if (settings.haptic) triggerHaptic("light"); setActiveTab(t as any); }}
+            style={{ 
+              flex: 1, padding: "8px 4px", borderRadius: 10, border: "none", fontSize: 11, fontWeight: 600,
+              background: activeTab === t ? TOKEN.amber : TOKEN.surfaceHighlight,
+              color: activeTab === t ? "#fff" : TOKEN.muted,
+              cursor: "pointer"
             }}
           >
-            <span>{v.icon}</span>
-            {v.label}
+            {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
 
       <div id="report-content" style={S.screenPad}>
-        {activeView === "overview" && renderOverview()}
-        {activeView === "calendar" && renderCalendar()}
-        {activeView === "merchants" && renderMerchants()}
+        {activeTab === "overview" && renderOverview()}
+        {activeTab === "calendar" && renderCalendar()}
+        {activeTab === "places" && renderPlaces()}
+        {activeTab === "intelligence" && renderIntelligence()}
       </div>
       <div style={{ height: 80 }} />
     </div>

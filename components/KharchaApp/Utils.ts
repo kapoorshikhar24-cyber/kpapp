@@ -152,6 +152,72 @@ export function getCategoryBreakdown(expenses: Expense[], categories: Category[]
   })).filter(c => c.value > 0);
 }
 
+export function getDailyStats(expenses: Expense[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayExps = expenses.filter(e => e.createdAt.slice(0, 10) === today && e.type !== "income");
+  
+  if (todayExps.length === 0) return null;
+
+  const total = sumExpenses(todayExps);
+  const count = todayExps.length;
+  const highest = Math.max(...todayExps.map(e => e.amount));
+  
+  const catCounts: Record<string, number> = {};
+  todayExps.forEach(e => catCounts[e.category] = (catCounts[e.category] || 0) + e.amount);
+  const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+  return { total, count, highest, topCat };
+}
+
+export function getWeeklyStats(expenses: Expense[]) {
+  const now = new Date();
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 1));
+  const startOfLastWeek = new Date(new Date(startOfWeek).setDate(startOfWeek.getDate() - 7));
+  
+  const thisWeek = expenses.filter(e => new Date(e.createdAt) >= startOfWeek && e.type !== "income");
+  const lastWeek = expenses.filter(e => {
+    const d = new Date(e.createdAt);
+    return d >= startOfLastWeek && d < startOfWeek && e.type !== "income";
+  });
+
+  const thisTotal = sumExpenses(thisWeek);
+  const lastTotal = sumExpenses(lastWeek);
+  
+  const weekendExps = thisWeek.filter(e => {
+    const d = new Date(e.createdAt).getDay();
+    return d === 0 || d === 6; // Sat, Sun
+  });
+  const weekdayExps = thisWeek.filter(e => {
+    const d = new Date(e.createdAt).getDay();
+    return d > 0 && d < 6;
+  });
+
+  return {
+    thisTotal,
+    lastTotal,
+    diff: lastTotal > 0 ? ((thisTotal - lastTotal) / lastTotal) * 100 : 0,
+    weekendTotal: sumExpenses(weekendExps),
+    weekdayTotal: sumExpenses(weekdayExps)
+  };
+}
+
+export function getForecast(expenses: Expense[]) {
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const currentDay = now.getDate();
+  
+  const thisMonth = expenses.filter(e => {
+    const d = new Date(e.createdAt);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && e.type !== "income";
+  });
+  
+  const spentSoFar = sumExpenses(thisMonth);
+  const avgPerDay = spentSoFar / currentDay;
+  const predicted = avgPerDay * daysInMonth;
+
+  return { spentSoFar, avgPerDay, predicted, progress: (currentDay / daysInMonth) * 100 };
+}
+
 export function getMerchantData(expenses: Expense[]) {
   const counts: Record<string, { amount: number; count: number }> = {};
   expenses.forEach(e => {
