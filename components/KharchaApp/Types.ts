@@ -8,6 +8,7 @@ export interface Category {
   icon: string;
   color: string;
   bg: string;
+  defaultAmount?: number;
 }
 
 export interface Wallet {

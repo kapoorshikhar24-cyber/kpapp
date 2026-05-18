@@ -89,6 +89,7 @@ export default function KharchaApp() {
   const [txType, setTxType] = useState<"expense" | "income">("expense");
   const [selWalletId, setSelWalletId] = useState<string>("cash");
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const [txDate, setTxDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
   // ── Categories ──────────────────────────────────────────────────────────────
   const [categories, setCategories] = useState<Category[]>(CATEGORIES);
@@ -281,7 +282,7 @@ export default function KharchaApp() {
       category: selCat.id,
       amount: amtVal,
       note: note.trim(),
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(txDate + "T12:00:00").toISOString(),
       type: txType,
       walletId: selWalletId,
       isRecurring: isRecurring,
@@ -295,9 +296,10 @@ export default function KharchaApp() {
       setAmtVal(150);
       setTxType("expense");
       setIsRecurring(false);
+      setTxDate(new Date().toISOString().slice(0, 10));
       go("dash");
     }, 900);
-  }, [selCat, amtVal, note, go, isSaving]);
+  }, [selCat, amtVal, note, go, isSaving, txType, selWalletId, isRecurring, txDate]);
 
   const deleteExpense = useCallback((id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
@@ -670,6 +672,13 @@ export default function KharchaApp() {
                 onClick={() => {
                   if (settings.haptic) triggerHaptic("light");
                   setSelCat(cat);
+                  if (cat.defaultAmount) {
+                    setAmtVal(cat.defaultAmount);
+                    setAmtInput(cat.defaultAmount.toString());
+                  } else {
+                    setAmtVal(150);
+                    setAmtInput("");
+                  }
                   go("amt");
                 }}
                 style={{
@@ -765,6 +774,18 @@ export default function KharchaApp() {
               }
             }}
             placeholder="Lunch, Petrol, Uber…"
+            style={S.noteInput}
+            onFocus={() => setShowKeypad(false)}
+          />
+        </div>
+
+        {/* Date Input */}
+        <div style={S.card}>
+          <div style={{ color: TOKEN.muted, fontSize: 11, marginBottom: 6 }}>Date</div>
+          <input
+            type="date"
+            value={txDate}
+            onChange={(e) => setTxDate(e.target.value)}
             style={S.noteInput}
             onFocus={() => setShowKeypad(false)}
           />
@@ -1370,29 +1391,47 @@ export default function KharchaApp() {
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "10px 20px" }}>
           {categories.map((cat, idx) => (
-            <div key={cat.id} style={{ ...S.togRow, padding: "12px 0" }}>
+            <div key={cat.id} style={{ ...S.togRow, padding: "12px 0", flexWrap: "wrap", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ ...S.picon, background: cat.bg }}>
                   <CatIcon id={cat.icon} size={18} color={cat.color} />
                 </div>
-                <div style={{ color: TOKEN.textSub }}>{cat.label}</div>
+                <div style={{ color: TOKEN.textSub }}>
+                  {cat.label}
+                  {cat.defaultAmount && <div style={{ fontSize: 10, color: TOKEN.muted }}>Default: {fmt(cat.defaultAmount)}</div>}
+                </div>
               </div>
-              <button onClick={() => {
-                setCategories(prev => prev.filter((_, i) => i !== idx));
-              }} style={{ background: "none", border: "none", color: TOKEN.danger, cursor: "pointer" }}>Delete</button>
+              <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                <button onClick={() => {
+                  const amtStr = window.prompt("Set default amount (leave blank to clear):", cat.defaultAmount?.toString() || "");
+                  if (amtStr !== null) {
+                    const parsed = parseInt(amtStr);
+                    const updated = { ...cat, defaultAmount: isNaN(parsed) ? undefined : parsed };
+                    setCategories(prev => prev.map(c => c.id === cat.id ? updated : c));
+                  }
+                }} style={{ background: "none", border: `1px solid ${TOKEN.border}`, borderRadius: 6, padding: "4px 8px", color: TOKEN.textSub, cursor: "pointer", fontSize: 11 }}>
+                  Set Default
+                </button>
+                <button onClick={() => {
+                  setCategories(prev => prev.filter((_, i) => i !== idx));
+                }} style={{ background: "none", border: "none", color: TOKEN.danger, cursor: "pointer", fontSize: 12 }}>Delete</button>
+              </div>
             </div>
           ))}
           <div style={{ marginTop: 20, padding: 14, background: TOKEN.surface, borderRadius: 12, border: `1.5px dashed ${TOKEN.border}`, textAlign: "center", color: TOKEN.muted, fontSize: 13, cursor: "pointer" }}
             onClick={() => {
               const name = window.prompt("Category Name?");
               const icon = window.prompt("Icon (Emoji)?") || "📦";
+              const amtStr = window.prompt("Default Amount (optional)?");
               if (name) {
+                const parsedAmt = amtStr ? parseInt(amtStr) : undefined;
                 const newCat: Category = {
                   id: name.toLowerCase().replace(/\s+/g, "_"),
                   label: name,
                   icon: icon,
                   color: TOKEN.amber,
-                  bg: TOKEN.surfaceElevated
+                  bg: TOKEN.surfaceElevated,
+                  defaultAmount: isNaN(parsedAmt as number) ? undefined : parsedAmt
                 };
                 setCategories(prev => [...prev, newCat]);
               }
